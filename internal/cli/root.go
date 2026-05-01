@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"fmt"
+	"os"
+
+	"github.com/iainmoffat/sophosfw/internal/render"
 	"github.com/spf13/cobra"
 )
 
-// RootDeps holds dependencies injected into the root command. Keeping this
-// explicit lets tests construct a root with controlled state.
+// RootDeps holds dependencies injected into the root command.
 type RootDeps struct {
 	Version string
+	// Wired in later tasks: BaseDir, ConfigLoader, ProfileSvc factory, etc.
 }
 
 // NewRoot constructs the cobra root command with all subcommands wired in.
@@ -19,13 +23,31 @@ func NewRoot(d RootDeps) *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	// Global flags are added in later tasks (auth/object/raw etc.).
 	root.PersistentFlags().String("profile", "", "config profile to use (default: currentProfile from config)")
 	root.PersistentFlags().Bool("json", false, "emit JSON envelope output instead of tables")
 	root.PersistentFlags().Duration("timeout", 0, "override per-request timeout")
 	root.PersistentFlags().Bool("debug", false, "verbose logging (credentials always redacted)")
+	root.PersistentFlags().Bool("insecure-skip-verify", false, "DANGER: skip TLS certificate verification for this invocation")
 
 	root.AddCommand(newVersionCmd(d))
 
 	return root
+}
+
+// HandleError maps a returned error to an exit code, printing either an
+// error envelope (JSON mode) or a friendly stderr line. Use this from main().
+func HandleError(cmd *cobra.Command, err error) int {
+	if err == nil {
+		return 0
+	}
+	kind := ErrorKind(err)
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	profile, _ := cmd.Flags().GetString("profile")
+
+	if jsonMode {
+		_ = render.WriteError(os.Stderr, kind, err.Error(), profile, nil)
+	} else {
+		fmt.Fprintf(os.Stderr, "error (%s): %v\n", kind, err)
+	}
+	return ExitCodeFor(kind)
 }
