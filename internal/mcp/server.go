@@ -70,4 +70,5 @@ func (s *Server) ServeStdio(ctx context.Context, _ io.Writer) error {
 func (s *Server) registerAll() {
 	s.registerAuth()
 	s.registerObject()
+	s.registerRaw()
 }
