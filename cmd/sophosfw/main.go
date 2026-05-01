@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/iainmoffat/sophosfw/internal/cli"
 	"github.com/iainmoffat/sophosfw/internal/config"
@@ -37,7 +40,9 @@ func main() {
 			return svc.DefaultClientFactory(false)(p, c)
 		},
 	})
-	if err := root.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := root.ExecuteContext(ctx); err != nil {
 		os.Exit(cli.HandleError(root, err))
 	}
 }

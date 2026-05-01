@@ -87,12 +87,12 @@ func (a *AuthSvc) Test(ctx context.Context, profileName string) (ConnectionResul
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return ConnectionResult{
-			Profile:   name,
-			OK:        false,
-			LatencyMs: latency,
-			AuthOK:    !errors.Is(err, sophos.ErrAuthFailed),
+			Profile:      name,
+			OK:           false,
+			LatencyMs:    latency,
+			AuthOK:       !errors.Is(err, sophos.ErrAuthFailed),
 			APIReachable: !isNetworkError(err),
-			Error:     err.Error(),
+			Error:        err.Error(),
 		}, err
 	}
 	return ConnectionResult{

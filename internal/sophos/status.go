@@ -8,19 +8,19 @@ import (
 // Sentinel errors. Higher layers compare with errors.Is to map to
 // sophosfw.v1.error envelope kinds.
 var (
-	ErrAuthFailed         = errors.New("sophos: authentication failed")
-	ErrNotFound           = errors.New("sophos: object not found")
-	ErrPermissionDenied   = errors.New("sophos: permission denied")
-	ErrInvalidRequest     = errors.New("sophos: invalid request")
-	ErrServerError        = errors.New("sophos: server error")
-	ErrReadOnlyViolation  = errors.New("sophos: read-only profile rejected mutating XML")
+	ErrAuthFailed        = errors.New("sophos: authentication failed")
+	ErrNotFound          = errors.New("sophos: object not found")
+	ErrPermissionDenied  = errors.New("sophos: permission denied")
+	ErrInvalidRequest    = errors.New("sophos: invalid request")
+	ErrServerError       = errors.New("sophos: server error")
+	ErrReadOnlyViolation = errors.New("sophos: read-only profile rejected mutating XML")
 )
 
 // StatusError wraps the original numeric code and message so callers can
 // surface them while still matching against a sentinel via errors.Is.
 type StatusError struct {
-	Code    int
-	Message string
+	Code     int
+	Message  string
 	Sentinel error
 }
 

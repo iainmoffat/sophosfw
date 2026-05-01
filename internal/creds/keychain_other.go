@@ -9,7 +9,7 @@ type KeychainStore struct{}
 
 func NewKeychainStore() *KeychainStore { return &KeychainStore{} }
 
-func (*KeychainStore) Backend() string                          { return BackendKeychain }
-func (*KeychainStore) Load(string) (Credentials, error)         { return Credentials{}, ErrNotFound }
-func (*KeychainStore) Save(string, Credentials) error           { return ErrNotFound }
-func (*KeychainStore) Delete(string) error                      { return nil }
+func (*KeychainStore) Backend() string                  { return BackendKeychain }
+func (*KeychainStore) Load(string) (Credentials, error) { return Credentials{}, ErrNotFound }
+func (*KeychainStore) Save(string, Credentials) error   { return ErrNotFound }
+func (*KeychainStore) Delete(string) error              { return nil }

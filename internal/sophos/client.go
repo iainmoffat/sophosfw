@@ -16,7 +16,7 @@ import (
 
 // ClientConfig configures a sophos.Client.
 type ClientConfig struct {
-	BaseURL            string        // e.g. https://fw.example.com:4444
+	BaseURL            string // e.g. https://fw.example.com:4444
 	Username           string
 	Password           string
 	Timeout            time.Duration

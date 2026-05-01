@@ -24,10 +24,10 @@ type Entry struct {
 
 // Catalog holds all known XML tags.
 type Catalog struct {
-	entries  []Entry
-	byTag    map[string]*Entry
-	byAlias  map[string]*Entry
-	parsers  map[string]TypedParser
+	entries []Entry
+	byTag   map[string]*Entry
+	byAlias map[string]*Entry
+	parsers map[string]TypedParser
 }
 
 // TypedParser converts a single record's JSON fragment (produced by the
