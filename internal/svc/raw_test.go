@@ -51,9 +51,3 @@ func TestRawSvc_Preview_RedactsCredentials(t *testing.T) {
 	require.Contains(t, pv.RedactedXML, "<Username>***</Username>")
 	require.Contains(t, pv.RedactedXML, "<Password>***</Password>")
 }
-
-func TestRawSvc_Apply_AlwaysReturnsUnsupported(t *testing.T) {
-	s := newRawSvc(t, &cannedClient{})
-	err := s.Apply(context.Background(), "home", []byte(`<Set operation="add"></Set>`))
-	require.ErrorIs(t, err, ErrUnsupportedInPhase)
-}

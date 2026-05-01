@@ -3,6 +3,7 @@ package svc
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/iainmoffat/sophosfw/internal/config"
 	"github.com/iainmoffat/sophosfw/internal/creds"
@@ -43,6 +44,7 @@ type RawSvc struct {
 	Config    *config.Config
 	Creds     creds.Store
 	NewClient ClientFactory
+	Audit     *AuditLog // optional; nil = no audit
 }
 
 func (s *RawSvc) clientFor(profileName string) (Client, string, error) {
@@ -111,8 +113,51 @@ func (s *RawSvc) Preview(ctx context.Context, profileName string, body []byte) (
 	return pv, nil
 }
 
-// Apply always returns ErrUnsupportedInPhase in foundation. Phase 6 will
-// implement the real apply path.
+// Apply sends a user-supplied raw envelope. Body is wrapped in a Sophos
+// <Request><Login>...</Login>BODY</Request> wrapper, sent, and audit-logged.
+// Pre-flight: read-only-profile rejection. The cli is expected to enforce
+// the --confirm-mutating intent gate before calling this method when the
+// envelope contains mutating verbs.
 func (s *RawSvc) Apply(ctx context.Context, profileName string, body []byte) error {
-	return ErrUnsupportedInPhase
+	profile, name, err := s.Config.ActiveProfile(profileName)
+	if err != nil {
+		return err
+	}
+	if profile.ReadOnly {
+		return fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
+	}
+	c, err := s.Creds.Load(name)
+	if err != nil {
+		return err
+	}
+	full, err := sophos.BuildRawEnvelope(body, c.Username, c.Password)
+	if err != nil {
+		return err
+	}
+
+	cl := s.NewClient(profile, c)
+	_, sendErr := cl.DoRaw(ctx, full)
+
+	mutating, _ := safety.IsMutating(full)
+	op := "raw_apply"
+	if mutating {
+		op = "raw_apply_mutating"
+	}
+	entry := AuditEntry{
+		Profile:     name,
+		Operation:   op,
+		ObjectType:  "raw",
+		RedactedXML: string(safety.RedactXML(full)),
+	}
+	if sendErr != nil {
+		entry.Result = "error:" + ErrorKind(sendErr)
+		entry.ErrorMessage = sendErr.Error()
+	} else {
+		entry.Result = "ok"
+	}
+	if s.Audit != nil {
+		_ = s.Audit.Write(entry)
+	}
+
+	return sendErr
 }

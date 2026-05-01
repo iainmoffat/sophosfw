@@ -61,18 +61,16 @@ func TestRaw_Request_DryRunDetectsMutating(t *testing.T) {
 	require.False(t, strings.Contains(out.String(), "<Username>u</Username>"), "credentials must not appear unredacted")
 }
 
-func TestRaw_Request_YesReturnsUnsupported(t *testing.T) {
+func TestRaw_Request_YesAppliesMutatingRequest(t *testing.T) {
 	d := newRootForRawTest(t)
 	dir := t.TempDir()
 	xmlPath := filepath.Join(dir, "x.xml")
-	require.NoError(t, os.WriteFile(xmlPath, []byte(`<Set operation="add"></Set>`), 0o600))
+	require.NoError(t, os.WriteFile(xmlPath, []byte(`<Set operation="add"><IPHost><Name>x</Name></IPHost></Set>`), 0o600))
 
 	root := NewRoot(*d)
 	out := &bytes.Buffer{}
 	root.SetOut(out)
 	root.SetErr(out)
 	root.SetArgs([]string{"raw", "request", xmlPath, "--yes"})
-	err := root.Execute()
-	require.Error(t, err)
-	require.ErrorIs(t, err, svc.ErrUnsupportedInPhase)
+	require.NoError(t, root.Execute())
 }
