@@ -14,12 +14,12 @@ import (
 type AuditEntry struct {
 	Timestamp        string `json:"timestamp"`
 	Profile          string `json:"profile"`
-	Operation        string `json:"operation"`        // create | update | delete | raw_apply | raw_apply_mutating
-	ObjectType       string `json:"objectType"`       // IPHost | raw
+	Operation        string `json:"operation"`  // create | update | delete | raw_apply | raw_apply_mutating
+	ObjectType       string `json:"objectType"` // IPHost | raw
 	ObjectName       string `json:"objectName,omitempty"`
 	ExpectedDiffHash string `json:"expectedDiffHash,omitempty"`
 	RedactedXML      string `json:"redactedXml,omitempty"`
-	Result           string `json:"result"`           // ok | error:<kind>
+	Result           string `json:"result"` // ok | error:<kind>
 	ErrorMessage     string `json:"errorMessage,omitempty"`
 }
 

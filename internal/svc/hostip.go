@@ -354,8 +354,8 @@ func (s *HostIPSvc) mutate(
 		return nil, credsErr
 	}
 	var (
-		full         []byte
-		envelopeErr  error
+		full        []byte
+		envelopeErr error
 	)
 	switch operation {
 	case "create":

@@ -204,14 +204,14 @@ func hostIpCell(h svc.HostIP, col string) string {
 
 func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	var (
-		name       string
-		hostType   string
-		ipAddress  string
-		subnet     string
-		startIP    string
-		endIP      string
-		ipFamily   string
-		yes        bool
+		name      string
+		hostType  string
+		ipAddress string
+		subnet    string
+		startIP   string
+		endIP     string
+		ipFamily  string
+		yes       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -263,16 +263,16 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 
 func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	var (
-		name           string
-		hostType       string
-		ipAddress      string
-		subnet         string
-		startIP        string
-		endIP          string
-		ipFamily       string
-		expectedHash   string
-		ignoreHash     bool
-		yes            bool
+		name         string
+		hostType     string
+		ipAddress    string
+		subnet       string
+		startIP      string
+		endIP        string
+		ipFamily     string
+		expectedHash string
+		ignoreHash   bool
+		yes          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "update",
