@@ -6,6 +6,7 @@ objects:
     filterable: [Name, IPAddress, IPFamily, HostType]
     usageTag: IPHostStatistics
     typedParser: iphost
+    mutable: true
 
   - tag: IPHostGroup
     aliases: [host-group, ip-host-group]

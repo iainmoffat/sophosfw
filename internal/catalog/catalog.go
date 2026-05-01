@@ -20,6 +20,7 @@ type Entry struct {
 	Filterable  []string `yaml:"filterable"`
 	UsageTag    string   `yaml:"usageTag"`
 	TypedParser string   `yaml:"typedParser"`
+	Mutable     bool     `yaml:"mutable,omitempty"` // Phase 6: only IPHost; defaults false
 }
 
 // Catalog holds all known XML tags.

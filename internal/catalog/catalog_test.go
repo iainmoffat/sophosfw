@@ -53,3 +53,21 @@ objects:
 `))
 	require.Error(t, err)
 }
+
+func TestCatalog_IPHostMutable(t *testing.T) {
+	c, err := NewDefault()
+	require.NoError(t, err)
+	entry, ok := c.Resolve("IPHost")
+	require.True(t, ok)
+	require.True(t, entry.Mutable, "IPHost should be marked mutable in Phase 6")
+}
+
+func TestCatalog_OtherEntriesNotMutable(t *testing.T) {
+	c, err := NewDefault()
+	require.NoError(t, err)
+	for _, tag := range []string{"FQDNHost", "MACHost", "Zone", "FirewallRule", "NATRule", "Services"} {
+		entry, ok := c.Resolve(tag)
+		require.True(t, ok, "tag %q should exist", tag)
+		require.False(t, entry.Mutable, "tag %q must NOT be mutable in Phase 6", tag)
+	}
+}

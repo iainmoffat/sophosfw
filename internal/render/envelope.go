@@ -103,6 +103,7 @@ func ObjectSchemaEnvelope(e *catalog.Entry) ([]byte, error) {
 		"filterable":  e.Filterable,
 		"usageTag":    e.UsageTag,
 		"typedParser": e.TypedParser,
+		"mutable":     e.Mutable,
 	})
 }
 
