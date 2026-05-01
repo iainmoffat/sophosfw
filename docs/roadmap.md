@@ -1,10 +1,10 @@
 # sophosfw roadmap
 
 ## Status
-- Phase 0 — Research and design (this spec)
-- Phase 1 — Foundation (covered by this spec; implementation plan to follow)
-- Phase 2 — Generic API coverage (covered by this spec; implementation plan to follow)
-- Phase 3 — First-class read-only commands (host ip, service, firewall rule, nat rule)
+- Phase 0 — Research and design (complete)
+- Phase 1 — Foundation (complete; v0.1.0-foundation)
+- Phase 2 — Generic API coverage (complete; covered by foundation)
+- Phase 3 — First-class read-only commands (complete; v0.2.0-phase3)
 - Phase 4 — MCP read-only server (full tool suite)
 - Phase 5 — Agent skill completion (mutating workflows, finalized examples)
 - Phase 6 — Safe mutations (host ip create/update/delete + MCP equivalents)
