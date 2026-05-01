@@ -68,5 +68,5 @@ func (s *Server) ServeStdio(ctx context.Context, _ io.Writer) error {
 // function lives in its own per-group file (auth.go, object.go, etc.) and
 // is added to the Server. T3 leaves this empty; T4-T10 add the real groups.
 func (s *Server) registerAll() {
-	// no-op until T4
+	s.registerAuth()
 }
