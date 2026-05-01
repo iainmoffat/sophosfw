@@ -48,6 +48,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 	root.AddCommand(newHostCmd(d, cat))
 	root.AddCommand(newServiceCmd(d, cat))
 	root.AddCommand(newFirewallCmd(d, cat))
+	root.AddCommand(newNATCmd(d, cat))
 
 	return root
 }
