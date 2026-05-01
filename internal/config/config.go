@@ -26,6 +26,7 @@ type Defaults struct {
 	Output             string        `yaml:"output"`
 	Timeout            time.Duration `yaml:"timeout"`
 	InsecureSkipVerify bool          `yaml:"insecureSkipVerify"`
+	AuditLog           *bool         `yaml:"auditLog,omitempty"` // pointer: nil = default-on
 }
 
 // Profile is a single named firewall configuration.
@@ -159,6 +160,16 @@ func (c *Config) ActiveProfile(override string) (Profile, string, error) {
 		return Profile{}, "", fmt.Errorf("profile %q not found", name)
 	}
 	return p, name, nil
+}
+
+// AuditLogEnabled reports whether mutation audit logging should write to
+// ~/.config/sophosfw/audit.log. Default: true. Set defaults.auditLog: false
+// in config.yaml to disable.
+func (c *Config) AuditLogEnabled() bool {
+	if c == nil || c.Defaults.AuditLog == nil {
+		return true
+	}
+	return *c.Defaults.AuditLog
 }
 
 // DefaultBaseDir returns the conventional config dir under $XDG_CONFIG_HOME
