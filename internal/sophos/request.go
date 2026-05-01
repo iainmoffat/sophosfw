@@ -108,6 +108,42 @@ func BuildRawEnvelope(raw []byte, username, password string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// BuildSetEnvelope wraps inner XML in a <Set operation="add|update"> within
+// the standard Sophos <Request><Login>...</Login>...</Request> envelope.
+// `operation` must be "add" or "update". `inner` is the body that goes
+// inside <Set>...</Set>, e.g. `<IPHost>...</IPHost>`.
+func BuildSetEnvelope(operation string, inner []byte, username, password string) ([]byte, error) {
+	if operation != "add" && operation != "update" {
+		return nil, fmt.Errorf("BuildSetEnvelope: operation must be \"add\" or \"update\", got %q", operation)
+	}
+	var buf bytes.Buffer
+	buf.WriteString("<Request>")
+	if err := writeLogin(&buf, username, password); err != nil {
+		return nil, err
+	}
+	buf.WriteString(`<Set operation="`)
+	buf.WriteString(operation)
+	buf.WriteString(`">`)
+	buf.Write(inner)
+	buf.WriteString("</Set>")
+	buf.WriteString("</Request>")
+	return buf.Bytes(), nil
+}
+
+// BuildRemoveEnvelope wraps inner XML in a <Remove>...</Remove>.
+func BuildRemoveEnvelope(inner []byte, username, password string) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString("<Request>")
+	if err := writeLogin(&buf, username, password); err != nil {
+		return nil, err
+	}
+	buf.WriteString("<Remove>")
+	buf.Write(inner)
+	buf.WriteString("</Remove>")
+	buf.WriteString("</Request>")
+	return buf.Bytes(), nil
+}
+
 func writeLogin(buf *bytes.Buffer, username, password string) error {
 	buf.WriteString("<Login>")
 	buf.WriteString("<Username>")
