@@ -1,55 +1,72 @@
-// Package mcp is the foundation-phase MCP server scaffold. It registers zero
-// tools but exists to prove the seam: the catalog and svc packages must be
-// usable from a non-Cobra consumer. Phase 4 will add the real tool surface.
+// Package mcp wraps the modelcontextprotocol/go-sdk SDK to expose sophosfw's
+// read-only surface as MCP tools. Tool handlers are thin adapters over the
+// existing svc package; output bodies are sophosfw.v1.* JSON envelopes
+// matching the cli --json output.
 package mcp
 
 import (
 	"context"
-	"fmt"
 	"io"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/config"
 	"github.com/iainmoffat/sophosfw/internal/creds"
+	"github.com/iainmoffat/sophosfw/internal/svc"
 )
 
 // Deps are the dependencies the MCP server needs from main.
 type Deps struct {
-	Config  *config.Config
-	Creds   creds.Store
-	Catalog *catalog.Catalog
+	Config         *config.Config
+	Creds          creds.Store
+	Catalog        *catalog.Catalog
+	NewClient      svc.ClientFactory
+	DefaultProfile string // from --profile flag at server startup; "" = use config currentProfile
 }
 
-// Server is the MCP server stub.
+// Server wraps an sdk-mcp Server and the project Deps.
 type Server struct {
 	deps Deps
+	impl *sdkmcp.Server
 }
 
-// NewServer constructs a stub server.
-func NewServer(d Deps) *Server { return &Server{deps: d} }
-
-// StartupReport returns the line printed by `mcp serve` at startup. It also
-// exercises the seam by calling into the catalog so a future Phase-4 plug-in
-// can rely on Catalog being non-nil and loadable.
-func (s *Server) StartupReport(ctx context.Context) (string, error) {
-	tags := s.deps.Catalog.Tags()
-	return fmt.Sprintf(
-		"sophosfw MCP server: 0 tools registered (foundation phase scaffold; Phase 4 will add tools). Catalog has %d tags loaded.",
-		len(tags),
-	), nil
+// NewServer constructs the MCP server with all read-only tools registered.
+// version becomes the Server.Version field reported during the MCP handshake.
+func NewServer(version string, d Deps) *Server {
+	impl := sdkmcp.NewServer(&sdkmcp.Implementation{
+		Name:    "sophosfw",
+		Version: version,
+	}, nil)
+	s := &Server{deps: d, impl: impl}
+	s.registerAll()
+	return s
 }
 
-// Serve is the entrypoint for `mcp serve`. In foundation phase it simply
-// prints the startup report and blocks on ctx.Done(). Phase 4 will replace
-// this with the real MCP transport (stdio JSON-RPC) and tool registration.
-func (s *Server) Serve(ctx context.Context, w io.Writer) error {
-	msg, err := s.StartupReport(ctx)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w, msg); err != nil {
-		return err
-	}
-	<-ctx.Done()
-	return nil
+// Impl returns the underlying SDK server for testing purposes.
+func (s *Server) Impl() *sdkmcp.Server {
+	return s.impl
+}
+
+// Serve runs the MCP server on the supplied transport until the transport
+// closes or the context is canceled.
+func (s *Server) Serve(ctx context.Context, transport sdkmcp.Transport) error {
+	return s.impl.Run(ctx, transport)
+}
+
+// ServeStdio is a convenience for the cli `mcp serve` command. It uses the
+// SDK's StdioTransport bound to os.Stdin/os.Stdout.
+//
+// The unused `w` parameter exists only so existing call sites built for the
+// foundation stub (which took io.Writer) can compile during the transition;
+// it is ignored.
+func (s *Server) ServeStdio(ctx context.Context, _ io.Writer) error {
+	return s.Serve(ctx, &sdkmcp.StdioTransport{})
+}
+
+// registerAll wires every per-group tool registration. Each registerXxx
+// function lives in its own per-group file (auth.go, object.go, etc.) and
+// is added to the Server. T3 leaves this empty; T4-T10 add the real groups.
+func (s *Server) registerAll() {
+	// no-op until T4
 }
