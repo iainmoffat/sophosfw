@@ -11,15 +11,15 @@ import (
 )
 
 var requiredCommandsInExamples = []string{
-	"sophosfw auth status",      // Phase 1
-	"sophosfw object list",       // Phase 2
-	"sophosfw raw get",           // Phase 2
-	"sophosfw mcp serve",         // Phase 2
-	"sophosfw host ip list",      // Phase 3
-	"sophosfw service list",      // Phase 3
+	"sophosfw auth status",        // Phase 1
+	"sophosfw object list",        // Phase 2
+	"sophosfw raw get",            // Phase 2
+	"sophosfw mcp serve",          // Phase 2
+	"sophosfw host ip list",       // Phase 3
+	"sophosfw service list",       // Phase 3
 	"sophosfw firewall rule list", // Phase 3
-	"sophosfw nat rule list",     // Phase 3
-	"host_ip_list",               // Phase 4 MCP sentinel; if this is documented, the rest of the MCP surface is too
+	"sophosfw nat rule list",      // Phase 3
+	"host_ip_list",                // Phase 4 MCP sentinel; if this is documented, the rest of the MCP surface is too
 }
 
 func newSkillCmd(d RootDeps) *cobra.Command {
