@@ -217,9 +217,6 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Use:   "create",
 		Short: "Create a new IP host object",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if name == "" || hostType == "" || ipAddress == "" {
-				return fmt.Errorf("--name, --host-type, and --ip-address are required")
-			}
 			profile, _ := cmd.Flags().GetString("profile")
 			input := svc.HostIPCreateInput{
 				Name:      name,
@@ -253,13 +250,14 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name of the host object")
-	cmd.Flags().StringVar(&hostType, "host-type", "", "host type (Network|IP|IPRange|IPList)")
+	cmd.Flags().StringVar(&hostType, "host-type", "Network", "host type (Network|IP|IPRange|IPList)")
 	cmd.Flags().StringVar(&ipAddress, "ip-address", "", "IP address")
 	cmd.Flags().StringVar(&subnet, "subnet", "", "subnet mask")
 	cmd.Flags().StringVar(&startIP, "start-ip", "", "start IP for IPRange")
 	cmd.Flags().StringVar(&endIP, "end-ip", "", "end IP for IPRange")
 	cmd.Flags().StringVar(&ipFamily, "ip-family", "IPv4", "IP family (IPv4|IPv6)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 
@@ -280,9 +278,6 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Use:   "update",
 		Short: "Update an existing IP host object",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if name == "" || hostType == "" || ipAddress == "" {
-				return fmt.Errorf("--name, --host-type, and --ip-address are required")
-			}
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for update --yes (or pass --ignore-diff-hash)")
 			}
@@ -319,7 +314,7 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name of the host object")
-	cmd.Flags().StringVar(&hostType, "host-type", "", "host type (Network|IP|IPRange|IPList)")
+	cmd.Flags().StringVar(&hostType, "host-type", "Network", "host type (Network|IP|IPRange|IPList)")
 	cmd.Flags().StringVar(&ipAddress, "ip-address", "", "IP address")
 	cmd.Flags().StringVar(&subnet, "subnet", "", "subnet mask")
 	cmd.Flags().StringVar(&startIP, "start-ip", "", "start IP for IPRange")
@@ -328,6 +323,7 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "expected diff hash for optimistic concurrency")
 	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip diff hash check")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 
