@@ -49,6 +49,7 @@ func newObjectListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&filterStr, "filter", "", "Field:Criteria:Value (e.g. Name:like:LAN)")
+	c.Flags().String("columns", "", "comma-separated column override (default: catalog columns)")
 	return c
 }
 
@@ -71,7 +72,7 @@ func renderObjectList(cmd *cobra.Command, out *svc.ObjectList, cat *catalog.Cata
 		return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.objectList", payload)
 	}
 	entry, _ := cat.Resolve(out.Tag)
-	headers := entry.Columns
+	headers := resolveColumns(cmd, entry.Columns)
 	rows := make([][]string, 0, len(out.Items))
 	for _, item := range out.Items {
 		rows = append(rows, columnsFor(item, headers))
