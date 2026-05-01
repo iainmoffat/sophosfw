@@ -30,14 +30,11 @@ func newTestServer(t *testing.T) *Server {
 	})
 }
 
-func TestServer_BootsAndListsZeroTools(t *testing.T) {
+func TestServer_RegistersAllTools(t *testing.T) {
 	s := newTestServer(t)
-	require.NotNil(t, s.impl)
 
-	// Connect via in-memory transport pair, list tools.
 	ctx := context.Background()
 	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
-
 	ss, err := s.impl.Connect(ctx, serverTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ss.Close() })
@@ -52,5 +49,52 @@ func TestServer_BootsAndListsZeroTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 21, "T4 registers 4 auth tools, T5 registers 4 object tools, T6 registers 1 raw tool, T7 registers 4 host_ip tools, T8 registers 4 service tools, T9 registers 2 firewall_rule tools, T10 registers 2 nat_rule tools")
+	require.Len(t, result.Tools, 21,
+		"expected 21 Phase 4 tools, got %d", len(result.Tools))
+
+	names := make([]string, len(result.Tools))
+	for i, tool := range result.Tools {
+		names[i] = tool.Name
+	}
+	for _, want := range []string{
+		"auth_status", "auth_test", "auth_profile_list", "auth_profile_current",
+		"object_list", "object_get", "object_search", "object_usage",
+		"raw_get",
+		"host_ip_list", "host_ip_show", "host_ip_search", "host_ip_usage",
+		"service_list", "service_show", "service_search", "service_usage",
+		"firewall_rule_list", "firewall_rule_show",
+		"nat_rule_list", "nat_rule_show",
+	} {
+		require.Contains(t, names, want)
+	}
+}
+
+func TestServer_DispatchesAuthStatus_OverWire(t *testing.T) {
+	s := newTestServer(t)
+
+	ctx := context.Background()
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := s.impl.Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ss.Close() })
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = cs.Close()
+		_ = ss.Wait()
+	})
+
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "auth_status",
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	require.NotEmpty(t, result.Content)
+	tc, ok := result.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+	require.Contains(t, tc.Text, `"schema": "sophosfw.v1.authStatus"`)
 }
