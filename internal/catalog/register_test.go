@@ -18,9 +18,9 @@ func TestNewDefault_LoadsAndRegistersTypedParsers(t *testing.T) {
 	_, ok := v.(IPHost)
 	require.True(t, ok)
 
-	// FQDNHost should fall through to map (no typed parser).
+	// FQDNHost should dispatch to the typed parser.
 	v, err = c.Parse("FQDNHost", json.RawMessage(`{"Name":"x","FQDN":"a.b"}`))
 	require.NoError(t, err)
-	_, ok = v.(map[string]any)
+	_, ok = v.(FQDNHost)
 	require.True(t, ok)
 }

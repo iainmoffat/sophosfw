@@ -32,12 +32,12 @@ objects:
     typedParser: ""
 
   - tag: FQDNHost
-    aliases: [fqdn]
-    description: "FQDN host objects"
-    columns: [Name, FQDN, FQDNHostGroup]
-    filterable: [Name, FQDN]
+    aliases: [fqdn, fqdn-host, host-fqdn]
+    description: "FQDN host objects (DNS-name targets)"
+    columns: [Name, FQDN, IPFamily]
+    filterable: [Name, FQDN, IPFamily]
     usageTag: FQDNHostStatistics
-    typedParser: ""
+    typedParser: fqdnhost
 
   - tag: FQDNHostGroup
     aliases: [fqdn-group]
