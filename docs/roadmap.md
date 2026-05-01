@@ -5,7 +5,7 @@
 - Phase 1 — Foundation (complete; v0.1.0-foundation)
 - Phase 2 — Generic API coverage (complete; covered by foundation)
 - Phase 3 — First-class read-only commands (complete; v0.2.0-phase3)
-- Phase 4 — MCP read-only server (full tool suite)
+- Phase 4 — MCP read-only server (complete; v0.3.0-phase4)
 - Phase 5 — Agent skill completion (mutating workflows, finalized examples)
 - Phase 6 — Safe mutations (host ip create/update/delete + MCP equivalents)
 - Phase 7 — Complex draft workflows (firewall rule pull/edit/diff/preview/push)
