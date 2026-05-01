@@ -4,14 +4,20 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/iainmoffat/sophosfw/internal/config"
+	"github.com/iainmoffat/sophosfw/internal/creds"
 	"github.com/iainmoffat/sophosfw/internal/render"
+	"github.com/iainmoffat/sophosfw/internal/svc"
 	"github.com/spf13/cobra"
 )
 
 // RootDeps holds dependencies injected into the root command.
 type RootDeps struct {
-	Version string
-	// Wired in later tasks: BaseDir, ConfigLoader, ProfileSvc factory, etc.
+	Version   string
+	BaseDir   string
+	Config    *config.Config
+	Creds     creds.Store
+	NewClient svc.ClientFactory
 }
 
 // NewRoot constructs the cobra root command with all subcommands wired in.
@@ -30,6 +36,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 	root.PersistentFlags().Bool("insecure-skip-verify", false, "DANGER: skip TLS certificate verification for this invocation")
 
 	root.AddCommand(newVersionCmd(d))
+	root.AddCommand(newAuthCmd(d))
 
 	return root
 }
