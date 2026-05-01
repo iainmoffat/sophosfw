@@ -1,0 +1,96 @@
+objects:
+  - tag: IPHost
+    aliases: [host-ip, ip-host]
+    description: "IP host objects (single addresses, ranges, networks)"
+    columns: [Name, IPFamily, HostType, IPAddress, Subnet]
+    filterable: [Name, IPAddress, IPFamily, HostType]
+    usageTag: IPHostStatistics
+    typedParser: iphost
+
+  - tag: IPHostGroup
+    aliases: [host-group, ip-host-group]
+    description: "Group of IPHost objects"
+    columns: [Name, IPFamily, HostList]
+    filterable: [Name, IPFamily]
+    usageTag: IPHostGroupStatistics
+    typedParser: ""
+
+  - tag: Services
+    aliases: [service]
+    description: "Service objects (TCP/UDP/IP/ICMP definitions)"
+    columns: [Name, Type, ServiceDetails]
+    filterable: [Name, Type]
+    usageTag: ServicesStatistics
+    typedParser: service
+
+  - tag: ServiceGroup
+    aliases: [service-group]
+    description: "Group of Services objects"
+    columns: [Name, ServiceList]
+    filterable: [Name]
+    usageTag: ServiceGroupStatistics
+    typedParser: ""
+
+  - tag: FQDNHost
+    aliases: [fqdn]
+    description: "FQDN host objects"
+    columns: [Name, FQDN, FQDNHostGroup]
+    filterable: [Name, FQDN]
+    usageTag: FQDNHostStatistics
+    typedParser: ""
+
+  - tag: FQDNHostGroup
+    aliases: [fqdn-group]
+    description: "Group of FQDN host objects"
+    columns: [Name, FQDNHostList]
+    filterable: [Name]
+    usageTag: FQDNHostGroupStatistics
+    typedParser: ""
+
+  - tag: MACHost
+    aliases: [mac]
+    description: "MAC host objects"
+    columns: [Name, Type, MACAddress]
+    filterable: [Name, MACAddress]
+    usageTag: MACHostStatistics
+    typedParser: ""
+
+  - tag: Zone
+    aliases: [zone]
+    description: "Network zones"
+    columns: [Name, Type, Description]
+    filterable: [Name, Type]
+    usageTag: ZoneStatistics
+    typedParser: ""
+
+  - tag: Interface
+    aliases: [interface]
+    description: "Network interfaces"
+    columns: [Name, Hardware, IPAddress, NetworkZone]
+    filterable: [Name, Hardware]
+    usageTag: InterfaceStatistics
+    typedParser: ""
+
+  - tag: Gateway
+    aliases: [gateway]
+    description: "Gateways used in WAN/SD-WAN"
+    columns: [Name, IPAddress, GatewayType]
+    filterable: [Name, IPAddress]
+    usageTag: GatewayStatistics
+    typedParser: ""
+
+  - tag: FirewallRule
+    aliases: [firewall-rule, fw-rule]
+    description: "Firewall rules"
+    columns: [Name, Status, Position, IPFamily, Action, SourceZones, DestinationZones]
+    filterable: [Name, Status, IPFamily]
+    usageTag: ""
+    typedParser: ""
+
+  - tag: NATRule
+    aliases: [nat-rule, nat]
+    description: "NAT rules (linked NAT, source NAT)"
+    columns: [Name, Status, Position, OriginalSource, TranslatedSource]
+    filterable: [Name, Status]
+    usageTag: ""
+    typedParser: ""
