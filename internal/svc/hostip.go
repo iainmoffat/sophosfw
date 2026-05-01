@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -362,8 +363,13 @@ func (s *HostIPSvc) mutate(
 	case "update":
 		full, envelopeErr = sophos.BuildSetEnvelope("update", marshalIPHost(input), c.Username, c.Password)
 	case "delete":
-		inner := []byte("<IPHost><Name>" + name + "</Name></IPHost>")
-		full, envelopeErr = sophos.BuildRemoveEnvelope(inner, c.Username, c.Password)
+		var buf bytes.Buffer
+		buf.WriteString("<IPHost><Name>")
+		if err := xml.EscapeText(&buf, []byte(name)); err != nil {
+			return nil, err
+		}
+		buf.WriteString("</Name></IPHost>")
+		full, envelopeErr = sophos.BuildRemoveEnvelope(buf.Bytes(), c.Username, c.Password)
 	}
 	if envelopeErr != nil {
 		return nil, envelopeErr

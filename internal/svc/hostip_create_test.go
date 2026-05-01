@@ -20,6 +20,7 @@ import (
 type fakeMutClient struct {
 	sentEnvelopes [][]byte
 	body          map[string][]json.RawMessage
+	sendErr       error
 }
 
 func (f *fakeMutClient) Do(_ context.Context, env sophos.Envelope) (*sophos.Response, error) {
@@ -42,6 +43,9 @@ func (f *fakeMutClient) Do(_ context.Context, env sophos.Envelope) (*sophos.Resp
 }
 func (f *fakeMutClient) DoRaw(_ context.Context, raw []byte) (*sophos.Response, error) {
 	f.sentEnvelopes = append(f.sentEnvelopes, raw)
+	if f.sendErr != nil {
+		return nil, f.sendErr
+	}
 	return &sophos.Response{LoginOK: true}, nil
 }
 
@@ -129,4 +133,41 @@ func TestHostIPSvc_Create_ValidationFailure_BadHostType(t *testing.T) {
 	}, true)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+}
+
+func TestHostIPSvc_Create_DryRun_AuditLogged(t *testing.T) {
+	s, _, auditDir := newCreateTestSvc(t, false, nil)
+	_, err := s.Create(context.Background(), "home", HostIPCreateInput{
+		Name: "LAN-network", HostType: "Network",
+		IPAddress: "10.0.0.0", Subnet: "255.255.255.0",
+	}, true)
+	require.NoError(t, err)
+
+	// Verify audit log contains dry-run result
+	body, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"result":"ok (dry-run)"`)
+	require.Contains(t, string(body), `"operation":"create"`)
+}
+
+func TestHostIPSvc_Create_Apply_AuditLoggedOnFailure(t *testing.T) {
+	refetched := []json.RawMessage{json.RawMessage(`{"Name":"LAN-network","IPFamily":"IPv4","HostType":"Network","IPAddress":"10.0.0.0","Subnet":"255.255.255.0"}`)}
+	s, fc, auditDir := newCreateTestSvc(t, false, refetched)
+
+	// Configure the fake client to return an error
+	testErr := errors.New("network error")
+	fc.sendErr = testErr
+
+	_, err := s.Create(context.Background(), "home", HostIPCreateInput{
+		Name: "LAN-network", HostType: "Network",
+		IPAddress: "10.0.0.0", Subnet: "255.255.255.0",
+	}, false)
+	require.Error(t, err)
+	require.Equal(t, testErr, err)
+
+	// Verify audit log contains error result
+	body, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"result":"error:`)
+	require.Contains(t, string(body), `"errorMessage"`)
 }
