@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/config"
 	"github.com/iainmoffat/sophosfw/internal/creds"
 	"github.com/iainmoffat/sophosfw/internal/render"
@@ -37,6 +38,9 @@ func NewRoot(d RootDeps) *cobra.Command {
 
 	root.AddCommand(newVersionCmd(d))
 	root.AddCommand(newAuthCmd(d))
+
+	cat, _ := catalog.NewDefault()
+	root.AddCommand(newObjectCmd(d, cat))
 
 	return root
 }
