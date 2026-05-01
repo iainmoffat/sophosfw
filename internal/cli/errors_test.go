@@ -36,7 +36,7 @@ func TestErrorKind_UnsupportedInPhase(t *testing.T) {
 }
 
 func TestErrorKind_CatalogUnknown(t *testing.T) {
-	require.Equal(t, "catalog_unknown_tag", ErrorKind(svc.ErrCatalogUnknownTag))
+	require.Equal(t, "invalid_request", ErrorKind(svc.ErrCatalogUnknownTag))
 }
 
 func TestErrorKind_GenericFallback(t *testing.T) {
