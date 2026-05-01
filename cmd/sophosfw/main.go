@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/iainmoffat/sophosfw/internal/cli"
 	"github.com/iainmoffat/sophosfw/internal/config"
@@ -26,10 +27,11 @@ func main() {
 	store := creds.New(baseDir)
 
 	root := cli.NewRoot(cli.RootDeps{
-		Version: version,
-		BaseDir: baseDir,
-		Config:  cfg,
-		Creds:   store,
+		Version:  version,
+		BaseDir:  baseDir,
+		SkillDir: filepath.Join(".claude", "skills", "sophos-firewall"),
+		Config:   cfg,
+		Creds:    store,
 		NewClient: func(p config.Profile, c creds.Credentials) svc.Client {
 			// Wire CLI flags here once we have access to them; for now, use defaults.
 			return svc.DefaultClientFactory(false)(p, c)

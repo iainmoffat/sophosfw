@@ -16,6 +16,7 @@ import (
 type RootDeps struct {
 	Version   string
 	BaseDir   string
+	SkillDir  string
 	Config    *config.Config
 	Creds     creds.Store
 	NewClient svc.ClientFactory
@@ -38,6 +39,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 
 	root.AddCommand(newVersionCmd(d))
 	root.AddCommand(newAuthCmd(d))
+	root.AddCommand(newSkillCmd(d))
 
 	cat, _ := catalog.NewDefault()
 	root.AddCommand(newObjectCmd(d, cat))
