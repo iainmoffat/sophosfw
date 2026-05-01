@@ -7,6 +7,12 @@ import (
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
+// New sentinels for Phase 6 mutation paths.
+var (
+	ErrDiffHashMismatch = errors.New("diff hash mismatch: object has changed since you last read it")
+	ErrDiffHashRequired = errors.New("expectedDiffHash is required for update/delete")
+)
+
 // ErrorKind classifies an error into one of the stable kind tags used by
 // sophosfw.v1.error envelopes. The mapping is shared between cli.HandleError
 // and the MCP layer's errorEnvelopeResult helper.
@@ -34,6 +40,10 @@ func ErrorKind(err error) string {
 	case errors.Is(err, ErrUnsupportedInPhase):
 		return "unsupported_in_phase"
 	case errors.Is(err, ErrCatalogUnknownTag):
+		return "invalid_request"
+	case errors.Is(err, ErrDiffHashMismatch):
+		return "diff_hash_mismatch"
+	case errors.Is(err, ErrDiffHashRequired):
 		return "invalid_request"
 	}
 	if isTLSError(err) {

@@ -2,12 +2,14 @@ package svc
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net"
 	"strings"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
+	"github.com/iainmoffat/sophosfw/internal/safety"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
@@ -38,6 +40,7 @@ type HostIPList struct {
 // HostIPSvc serves the typed `host ip` first-class command surface.
 type HostIPSvc struct {
 	Inner *ObjectSvc
+	Audit *AuditLog // optional; nil = no audit logging (Write is a no-op anyway)
 }
 
 // hostKindMap normalizes Sophos's HostType vocabulary into a stable
@@ -175,3 +178,263 @@ func (s *HostIPSvc) Usage(ctx context.Context, profileName, name string, withRef
 	}
 	return out, nil
 }
+
+// HostIPCreateInput is the validated input for HostIPSvc.Create / Update.
+type HostIPCreateInput struct {
+	Name           string
+	IPFamily       string // "IPv4" or "IPv6"; default "IPv4" if empty
+	HostType       string // "Network" | "IP" | "IPRange" | "IPList"
+	IPAddress      string
+	Subnet         string
+	StartIPAddress string
+	EndIPAddress   string
+	IPAddressList  string
+}
+
+// HostIPMutationResult is the render-friendly result of a successful
+// mutation (or the dry-run preview of one).
+type HostIPMutationResult struct {
+	Profile   string
+	Operation string // "create" | "update" | "delete"
+	Name      string
+	DryRun    bool
+	Preview   *Preview // populated when DryRun=true
+	Item      *HostIP  // populated when applied; re-fetched post-write
+}
+
+// validateHostIPCreate checks per-HostType required fields. Server-side
+// semantics (e.g. CIDR validity, IP range ordering) are NOT checked here;
+// Sophos rejects those. We only catch missing-required-field cases.
+func validateHostIPCreate(in HostIPCreateInput) error {
+	if in.Name == "" {
+		return fmt.Errorf("%w: --name is required", sophos.ErrInvalidRequest)
+	}
+	switch in.HostType {
+	case "Network":
+		if in.IPAddress == "" || in.Subnet == "" {
+			return fmt.Errorf("%w: HostType=Network requires IPAddress and Subnet", sophos.ErrInvalidRequest)
+		}
+	case "IP":
+		if in.IPAddress == "" {
+			return fmt.Errorf("%w: HostType=IP requires IPAddress", sophos.ErrInvalidRequest)
+		}
+	case "IPRange":
+		if in.StartIPAddress == "" || in.EndIPAddress == "" {
+			return fmt.Errorf("%w: HostType=IPRange requires StartIPAddress and EndIPAddress", sophos.ErrInvalidRequest)
+		}
+	case "IPList":
+		if in.IPAddressList == "" {
+			return fmt.Errorf("%w: HostType=IPList requires IPAddressList", sophos.ErrInvalidRequest)
+		}
+	default:
+		return fmt.Errorf("%w: unknown HostType %q (expected Network|IP|IPRange|IPList)", sophos.ErrInvalidRequest, in.HostType)
+	}
+	if in.IPFamily != "" && in.IPFamily != "IPv4" && in.IPFamily != "IPv6" {
+		return fmt.Errorf("%w: IPFamily must be IPv4 or IPv6", sophos.ErrInvalidRequest)
+	}
+	return nil
+}
+
+// marshalIPHost emits the inner XML for a Set/Remove envelope. Fields are
+// emitted only when non-empty. The order matches Sophos's typical
+// representation (Name first, then HostType, IPFamily, then type-specific
+// fields).
+func marshalIPHost(in HostIPCreateInput) []byte {
+	family := in.IPFamily
+	if family == "" {
+		family = "IPv4"
+	}
+	var b strings.Builder
+	b.WriteString("<IPHost>")
+	b.WriteString("<Name>")
+	xml.EscapeText(&b, []byte(in.Name))
+	b.WriteString("</Name>")
+	b.WriteString("<HostType>")
+	xml.EscapeText(&b, []byte(in.HostType))
+	b.WriteString("</HostType>")
+	b.WriteString("<IPFamily>")
+	xml.EscapeText(&b, []byte(family))
+	b.WriteString("</IPFamily>")
+	if in.IPAddress != "" {
+		b.WriteString("<IPAddress>")
+		xml.EscapeText(&b, []byte(in.IPAddress))
+		b.WriteString("</IPAddress>")
+	}
+	if in.Subnet != "" {
+		b.WriteString("<Subnet>")
+		xml.EscapeText(&b, []byte(in.Subnet))
+		b.WriteString("</Subnet>")
+	}
+	if in.StartIPAddress != "" {
+		b.WriteString("<StartIPAddress>")
+		xml.EscapeText(&b, []byte(in.StartIPAddress))
+		b.WriteString("</StartIPAddress>")
+	}
+	if in.EndIPAddress != "" {
+		b.WriteString("<EndIPAddress>")
+		xml.EscapeText(&b, []byte(in.EndIPAddress))
+		b.WriteString("</EndIPAddress>")
+	}
+	if in.IPAddressList != "" {
+		b.WriteString("<IPAddressList>")
+		xml.EscapeText(&b, []byte(in.IPAddressList))
+		b.WriteString("</IPAddressList>")
+	}
+	b.WriteString("</IPHost>")
+	return []byte(b.String())
+}
+
+// Create issues <Set operation="add"><IPHost>...</IPHost></Set>.
+//   - dryRun=true: validate, build envelope, return Preview, NO wire call.
+//   - dryRun=false: validate, pre-flight read-only check, build, send,
+//     audit-log, refetch (one Do call to get the post-write state).
+func (s *HostIPSvc) Create(ctx context.Context, profileName string, input HostIPCreateInput, dryRun bool) (*HostIPMutationResult, error) {
+	return s.mutate(ctx, profileName, "create", input.Name, input, "", false, dryRun)
+}
+
+// mutate is the shared implementation of Create/Update/Delete. operation is
+// "create"|"update"|"delete". For delete, input is zeroed (only Name used).
+// expectedHash and ignoreHash apply only to update/delete.
+func (s *HostIPSvc) mutate(
+	ctx context.Context,
+	profileName, operation, name string,
+	input HostIPCreateInput,
+	expectedHash string,
+	ignoreHash bool,
+	dryRun bool,
+) (*HostIPMutationResult, error) {
+	// 1. Resolve profile + read-only pre-flight check.
+	profile, profName, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+	if profile.ReadOnly {
+		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, profName)
+	}
+
+	// 2. Catalog mutable check.
+	entry, ok := s.Inner.Catalog.Resolve("IPHost")
+	if !ok || !entry.Mutable {
+		return nil, fmt.Errorf("%w: IPHost is not marked mutable in the catalog", ErrUnsupportedInPhase)
+	}
+
+	// 3. For create/update, validate the input.
+	if operation != "delete" {
+		if err := validateHostIPCreate(input); err != nil {
+			return nil, err
+		}
+	} else if name == "" {
+		return nil, fmt.Errorf("%w: --name is required for delete", sophos.ErrInvalidRequest)
+	}
+
+	// 4. For update/delete, fetch and check diff hash.
+	if operation == "update" || operation == "delete" {
+		if expectedHash == "" && !ignoreHash {
+			return nil, fmt.Errorf("%w: expectedDiffHash is required for %s (or pass --ignore-diff-hash)", sophos.ErrInvalidRequest, operation)
+		}
+		if !ignoreHash {
+			current, getErr := s.Get(ctx, profileName, name)
+			if getErr != nil {
+				return nil, getErr
+			}
+			gotHash, hashErr := DiffHash(current.IPHost) // hash the raw catalog.IPHost, not svc.HostIP
+			if hashErr != nil {
+				return nil, hashErr
+			}
+			if gotHash != expectedHash {
+				return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, gotHash, expectedHash)
+			}
+		}
+	}
+
+	// 5. Build the envelope.
+	c, credsErr := s.Inner.Creds.Load(profName)
+	if credsErr != nil {
+		return nil, credsErr
+	}
+	var (
+		full         []byte
+		envelopeErr  error
+	)
+	switch operation {
+	case "create":
+		full, envelopeErr = sophos.BuildSetEnvelope("add", marshalIPHost(input), c.Username, c.Password)
+	case "update":
+		full, envelopeErr = sophos.BuildSetEnvelope("update", marshalIPHost(input), c.Username, c.Password)
+	case "delete":
+		inner := []byte("<IPHost><Name>" + name + "</Name></IPHost>")
+		full, envelopeErr = sophos.BuildRemoveEnvelope(inner, c.Username, c.Password)
+	}
+	if envelopeErr != nil {
+		return nil, envelopeErr
+	}
+
+	// 6. Compute audit-log fields used by both branches.
+	auditEntry := AuditEntry{
+		Profile:     profName,
+		Operation:   operation,
+		ObjectType:  "IPHost",
+		ObjectName:  name,
+		RedactedXML: string(safetyRedact(full)),
+	}
+	if expectedHash != "" {
+		auditEntry.ExpectedDiffHash = expectedHash
+	}
+	if ignoreHash {
+		auditEntry.ExpectedDiffHash = "ignored"
+	}
+
+	// 7. Dry-run path.
+	if dryRun {
+		mutating, verbs := safetyIsMutating(full)
+		pv := &Preview{
+			Profile:        profName,
+			Mutating:       mutating,
+			Verbs:          verbs,
+			RedactedXML:    auditEntry.RedactedXML,
+			WouldSendBytes: len(full),
+		}
+		auditEntry.Result = "ok (dry-run)"
+		_ = s.Audit.Write(auditEntry)
+		return &HostIPMutationResult{
+			Profile: profName, Operation: operation, Name: name,
+			DryRun: true, Preview: pv,
+		}, nil
+	}
+
+	// 8. Apply path: send the envelope.
+	cl := s.Inner.NewClient(profile, c)
+	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
+		auditEntry.Result = "error:" + ErrorKind(sendErr)
+		auditEntry.ErrorMessage = sendErr.Error()
+		_ = s.Audit.Write(auditEntry)
+		return nil, sendErr
+	}
+	auditEntry.Result = "ok"
+	_ = s.Audit.Write(auditEntry)
+
+	// 9. For create/update, re-fetch to return the post-write state.
+	if operation == "delete" {
+		return &HostIPMutationResult{
+			Profile: profName, Operation: operation, Name: name, DryRun: false,
+		}, nil
+	}
+	item, fetchErr := s.Get(ctx, profileName, name)
+	if fetchErr != nil {
+		// Mutation succeeded but re-fetch failed; return success with no Item.
+		return &HostIPMutationResult{
+			Profile: profName, Operation: operation, Name: name, DryRun: false,
+		}, nil
+	}
+	return &HostIPMutationResult{
+		Profile: profName, Operation: operation, Name: name, DryRun: false,
+		Item: item,
+	}, nil
+}
+
+// safetyIsMutating and safetyRedact are tiny indirections so this file
+// doesn't need to import the safety package directly. They forward to the
+// real helpers; if the implementer prefers a direct import they can
+// inline these.
+func safetyIsMutating(xml []byte) (bool, []string) { return safety.IsMutating(xml) }
+func safetyRedact(xml []byte) []byte               { return safety.RedactXML(xml) }

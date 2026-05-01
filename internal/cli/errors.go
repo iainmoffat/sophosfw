@@ -24,6 +24,8 @@ func ExitCodeFor(kind string) int {
 		return 5
 	case "unsupported_in_phase":
 		return 6
+	case "diff_hash_mismatch":
+		return 7
 	default:
 		return 1
 	}
