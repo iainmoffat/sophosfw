@@ -71,4 +71,5 @@ func (s *Server) registerAll() {
 	s.registerAuth()
 	s.registerObject()
 	s.registerRaw()
+	s.registerHostIP()
 }
