@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Response APIVersion="2200.1">
+  <Login><status>Authentication Successful</status></Login>
+  <IPHost transactionid="">
+    <Status code="526">No matching record found</Status>
+  </IPHost>
+</Response>

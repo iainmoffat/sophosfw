@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Response APIVersion="2200.1">
+  <Login><status>Authentication Successful</status></Login>
+  <IPHost transactionid="">
+    <Name>LAN-network</Name>
+    <IPFamily>IPv4</IPFamily>
+    <HostType>Network</HostType>
+    <IPAddress>10.0.0.0</IPAddress>
+    <Subnet>255.255.255.0</Subnet>
+  </IPHost>
+</Response>

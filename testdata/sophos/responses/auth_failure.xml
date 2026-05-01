@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Response APIVersion="2200.1">
+  <Login><status>Authentication Failure</status></Login>
+</Response>
