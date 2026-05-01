@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/iainmoffat/sophosfw/internal/render"
+	"github.com/iainmoffat/sophosfw/internal/safety"
 	"github.com/iainmoffat/sophosfw/internal/svc"
 	"github.com/spf13/cobra"
 )
@@ -41,7 +43,7 @@ func newRawGetCmd(d RootDeps) *cobra.Command {
 }
 
 func newRawRequestCmd(d RootDeps) *cobra.Command {
-	var dryRun, yes bool
+	var dryRun, yes, confirmMutating bool
 	c := &cobra.Command{
 		Use:   "request <file|->",
 		Short: "Send (preview) a hand-authored Sophos XML envelope",
@@ -65,14 +67,21 @@ func newRawRequestCmd(d RootDeps) *cobra.Command {
 				}
 			}
 
-			s := &svc.RawSvc{Config: d.Config, Creds: d.Creds, NewClient: d.NewClient}
+			s := &svc.RawSvc{Config: d.Config, Creds: d.Creds, NewClient: d.NewClient, Audit: d.Audit}
 
 			if !dryRun && !yes {
 				dryRun = true // default to safety
 			}
 
 			if yes {
-				return s.Apply(cmd.Context(), profile, body)
+				if mutating, _ := safety.IsMutating(body); mutating && !confirmMutating {
+					return fmt.Errorf("raw request: envelope contains mutating verbs (Set/Remove); pass --confirm-mutating to acknowledge intent (with --yes)")
+				}
+				if err := s.Apply(cmd.Context(), profile, body); err != nil {
+					return err
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "ok")
+				return nil
 			}
 
 			pv, err := s.Preview(cmd.Context(), profile, body)
@@ -88,6 +97,7 @@ func newRawRequestCmd(d RootDeps) *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "preview only (default in foundation phase)")
-	c.Flags().BoolVar(&yes, "yes", false, "(reserved) apply path is not implemented in foundation")
+	c.Flags().BoolVar(&yes, "yes", false, "send the envelope to the firewall")
+	c.Flags().BoolVar(&confirmMutating, "confirm-mutating", false, "required when --yes is used and the envelope contains Set/Remove verbs")
 	return c
 }

@@ -71,6 +71,6 @@ func TestRaw_Request_YesAppliesMutatingRequest(t *testing.T) {
 	out := &bytes.Buffer{}
 	root.SetOut(out)
 	root.SetErr(out)
-	root.SetArgs([]string{"raw", "request", xmlPath, "--yes"})
+	root.SetArgs([]string{"raw", "request", xmlPath, "--yes", "--confirm-mutating"})
 	require.NoError(t, root.Execute())
 }
