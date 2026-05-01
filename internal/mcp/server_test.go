@@ -52,5 +52,5 @@ func TestServer_BootsAndListsZeroTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 4, "T4 registers 4 auth tools")
+	require.Len(t, result.Tools, 8, "T4 registers 4 auth tools, T5 registers 4 object tools")
 }
