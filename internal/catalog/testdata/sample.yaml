@@ -1,0 +1,15 @@
+objects:
+  - tag: IPHost
+    aliases: [host-ip, ip-host]
+    description: "IP host objects"
+    columns: [Name, IPFamily, HostType, IPAddress, Subnet]
+    filterable: [Name, IPAddress, IPFamily, HostType]
+    usageTag: IPHostStatistics
+    typedParser: iphost
+  - tag: Services
+    aliases: [service]
+    description: "Service objects"
+    columns: [Name, Type, ServiceDetails]
+    filterable: [Name, Type]
+    usageTag: ServicesStatistics
+    typedParser: service
