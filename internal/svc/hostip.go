@@ -444,3 +444,27 @@ func (s *HostIPSvc) mutate(
 // inline these.
 func safetyIsMutating(xml []byte) (bool, []string) { return safety.IsMutating(xml) }
 func safetyRedact(xml []byte) []byte               { return safety.RedactXML(xml) }
+
+// Update issues <Set operation="update"><IPHost>...</IPHost></Set>. Requires
+// expectedHash unless ignoreHash=true. Compares against the current record's
+// hash; mismatch returns ErrDiffHashMismatch.
+func (s *HostIPSvc) Update(
+	ctx context.Context,
+	profileName string,
+	input HostIPCreateInput,
+	expectedHash string,
+	ignoreHash bool,
+	dryRun bool,
+) (*HostIPMutationResult, error) {
+	return s.mutate(ctx, profileName, "update", input.Name, input, expectedHash, ignoreHash, dryRun)
+}
+
+// Delete issues <Remove><IPHost><Name>X</Name></IPHost></Remove>. Same hash
+// semantics as Update.
+func (s *HostIPSvc) Delete(
+	ctx context.Context,
+	profileName, name, expectedHash string,
+	ignoreHash, dryRun bool,
+) (*HostIPMutationResult, error) {
+	return s.mutate(ctx, profileName, "delete", name, HostIPCreateInput{Name: name}, expectedHash, ignoreHash, dryRun)
+}
