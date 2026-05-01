@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
@@ -112,4 +113,65 @@ func (s *HostIPSvc) Get(ctx context.Context, profileName, name string) (*HostIP,
 	h := HostIP{IPHost: raw}
 	enrichHostIP(&h)
 	return &h, nil
+}
+
+// HostIPUsage is the render-friendly result of a usage query for the typed
+// host-ip surface. References is non-nil when --with-references was set.
+type HostIPUsage struct {
+	Profile    string
+	Name       string
+	Records    []map[string]any
+	References *References
+}
+
+// Search runs a client-side multi-field substring match on the full IPHost
+// list. Matches against Name, IPAddress, and Subnet, case-insensitively.
+// Returns a HostIPList with a populated Items list and Count.
+func (s *HostIPSvc) Search(ctx context.Context, profileName, query string) (*HostIPList, error) {
+	all, err := s.List(ctx, profileName, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := strings.ToLower(query)
+	out := &HostIPList{Profile: all.Profile}
+	for _, h := range all.Items {
+		if matchesHostIP(h, q) {
+			out.Items = append(out.Items, h)
+		}
+	}
+	out.Count = len(out.Items)
+	if out.Items == nil {
+		out.Items = []HostIP{}
+	}
+	return out, nil
+}
+
+func matchesHostIP(h HostIP, qLower string) bool {
+	return strings.Contains(strings.ToLower(h.Name), qLower) ||
+		strings.Contains(strings.ToLower(h.IPAddress), qLower) ||
+		strings.Contains(strings.ToLower(h.Subnet), qLower)
+}
+
+// Usage runs the IPHostStatistics query for `name`. When withRefs is true,
+// it additionally calls FindReferences for IPHost and attaches the result.
+// Per-referrer failures appear in HostIPUsage.References.Errors and never
+// cause Usage to return an error.
+func (s *HostIPSvc) Usage(ctx context.Context, profileName, name string, withRefs bool) (*HostIPUsage, error) {
+	inner, err := s.Inner.Usage(ctx, profileName, "IPHost", name)
+	if err != nil {
+		return nil, err
+	}
+	out := &HostIPUsage{
+		Profile: inner.Profile,
+		Name:    inner.Name,
+		Records: inner.Records,
+	}
+	if withRefs {
+		refs, refErr := FindReferences(ctx, s.Inner, profileName, "IPHost", name)
+		if refErr != nil {
+			return nil, refErr
+		}
+		out.References = refs
+	}
+	return out, nil
 }
