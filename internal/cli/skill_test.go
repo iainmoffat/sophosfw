@@ -10,7 +10,7 @@ import (
 )
 
 func TestSkillDoctor_PassesWhenSkillExists(t *testing.T) {
-	// Set up a fake project root with a fake skill that has all 9 required
+	// Set up a fake project root with a fake skill that has all 12 required
 	// strings split across examples.md and mcp-tools.md.
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, ".claude", "skills", "sophos-firewall")
@@ -25,9 +25,11 @@ sophosfw mcp serve
 sophosfw host ip list
 sophosfw service list
 sophosfw firewall rule list
-sophosfw nat rule list`), 0o600))
+sophosfw nat rule list
+sophosfw host ip create
+sophosfw host ip delete`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "mcp-tools.md"),
-		[]byte(`# MCP Tools\n\nIncludes host_ip_list and other MCP tools.`), 0o600))
+		[]byte(`# MCP Tools\n\nIncludes host_ip_list and host_ip_create and other MCP tools.`), 0o600))
 
 	d, _ := newRootForTest(t)
 	d.SkillDir = skillDir
@@ -73,9 +75,9 @@ func TestSkillDoctor_FailsIfRequiredCommandMissingFromExamples(t *testing.T) {
 }
 
 func TestSkillDoctor_FindsRequiredInMcpTools(t *testing.T) {
-	// host_ip_list lives in mcp-tools.md, NOT examples.md. The other 8
+	// host_ip_list and host_ip_create live in mcp-tools.md, NOT examples.md. The other 10
 	// required strings live in examples.md. Doctor must concatenate
-	// both files and find all 9.
+	// both files and find all 12.
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "skill")
 	require.NoError(t, os.MkdirAll(skillDir, 0o700))
@@ -88,11 +90,13 @@ sophosfw mcp serve
 sophosfw host ip list
 sophosfw service list
 sophosfw firewall rule list
-sophosfw nat rule list`), 0o600))
+sophosfw nat rule list
+sophosfw host ip create
+sophosfw host ip delete`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "mcp-tools.md"),
 		[]byte(`# MCP Tools
 
-The host_ip_list tool lists IPHost records.`), 0o600))
+The host_ip_list and host_ip_create tools list and mutate IPHost records.`), 0o600))
 
 	d, _ := newRootForTest(t)
 	d.SkillDir = skillDir

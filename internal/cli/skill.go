@@ -20,6 +20,10 @@ var requiredCommandsInExamples = []string{
 	"sophosfw firewall rule list", // Phase 3
 	"sophosfw nat rule list",      // Phase 3
 	"host_ip_list",                // Phase 4 MCP sentinel; if this is documented, the rest of the MCP surface is too
+	// Phase 6 additions:
+	"sophosfw host ip create",
+	"sophosfw host ip delete",
+	"host_ip_create", // MCP sentinel for mutating tools
 }
 
 func newSkillCmd(d RootDeps) *cobra.Command {
