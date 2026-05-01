@@ -21,12 +21,14 @@ func newTestServer(t *testing.T) *Server {
 	cfg.AddProfile("home", config.Profile{URL: "https://x:4444"})
 	store := creds.NewFileStore(t.TempDir())
 	require.NoError(t, store.Save("home", creds.Credentials{Username: "u", Password: "p"}))
+	audit := svc.NewAuditLog(t.TempDir(), true)
 	return NewServer("test", Deps{
 		Config:         cfg,
 		Creds:          store,
 		Catalog:        cat,
 		NewClient:      func(_ config.Profile, _ creds.Credentials) svc.Client { return nil },
 		DefaultProfile: "home",
+		Audit:          audit,
 	})
 }
 
@@ -49,8 +51,8 @@ func TestServer_RegistersAllTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 21,
-		"expected 21 Phase 4 tools, got %d", len(result.Tools))
+	require.Len(t, result.Tools, 24,
+		"expected 24 Phase 6 tools, got %d", len(result.Tools))
 
 	names := make([]string, len(result.Tools))
 	for i, tool := range result.Tools {
@@ -61,6 +63,7 @@ func TestServer_RegistersAllTools(t *testing.T) {
 		"object_list", "object_get", "object_search", "object_usage",
 		"raw_get",
 		"host_ip_list", "host_ip_show", "host_ip_search", "host_ip_usage",
+		"host_ip_create", "host_ip_update", "host_ip_delete",
 		"service_list", "service_show", "service_search", "service_usage",
 		"firewall_rule_list", "firewall_rule_show",
 		"nat_rule_list", "nat_rule_show",

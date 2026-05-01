@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -49,10 +50,25 @@ func (s *Server) registerHostIP() {
 		Description: "IPHostStatistics for a host, optionally with reference graph (rules + groups). Returns sophosfw.v1.hostIpUsage envelope.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "IP host usage"},
 	}, s.handleHostIpUsage)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "host_ip_create",
+		Description: "Create a new IPHost. Requires confirm: true. Use dryRun: true to preview without applying. Returns sophosfw.v1.hostIpMutation on apply or sophosfw.v1.preview on dry-run.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Create IP host"},
+	}, s.handleHostIpCreate)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "host_ip_update",
+		Description: "Update an existing IPHost. Requires confirm: true AND expectedDiffHash from a prior host_ip_show. Use dryRun: true to preview.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Update IP host"},
+	}, s.handleHostIpUpdate)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "host_ip_delete",
+		Description: "Delete an IPHost by name. Requires confirm: true AND expectedDiffHash from a prior host_ip_show.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptrBool(true), Title: "Delete IP host"},
+	}, s.handleHostIpDelete)
 }
 
 func (s *Server) hostIpSvc() *svc.HostIPSvc {
-	return &svc.HostIPSvc{Inner: s.objectSvc()}
+	return &svc.HostIPSvc{Inner: s.objectSvc(), Audit: s.deps.Audit}
 }
 
 func (s *Server) handleHostIpList(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpListInput) (*sdkmcp.CallToolResult, any, error) {
@@ -82,7 +98,11 @@ func (s *Server) handleHostIpShow(ctx context.Context, _ *sdkmcp.CallToolRequest
 	if err != nil {
 		return s.errorEnvelopeResult(err, profile)
 	}
-	body, err := render.HostIPEnvelope(h)
+	hash, hashErr := svc.DiffHash(h.IPHost)
+	if hashErr != nil {
+		return s.errorEnvelopeResult(hashErr, profile)
+	}
+	body, err := render.HostIPEnvelopeWithDiffHash(h, hash)
 	if err != nil {
 		return s.errorEnvelopeResult(err, profile)
 	}
@@ -113,4 +133,106 @@ func (s *Server) handleHostIpUsage(ctx context.Context, _ *sdkmcp.CallToolReques
 		return s.errorEnvelopeResult(err, profile)
 	}
 	return jsonResult(body)
+}
+
+type HostIpCreateInput struct {
+	Profile        string `json:"profile,omitempty"`
+	Name           string `json:"name" jsonschema:"required" jsonschema_description:"object name"`
+	IpFamily       string `json:"ipFamily,omitempty"`
+	HostType       string `json:"hostType" jsonschema:"required" jsonschema_description:"Network|IP|IPRange|IPList"`
+	IpAddress      string `json:"ipAddress,omitempty"`
+	Subnet         string `json:"subnet,omitempty"`
+	StartIpAddress string `json:"startIpAddress,omitempty"`
+	EndIpAddress   string `json:"endIpAddress,omitempty"`
+	IpAddressList  string `json:"ipAddressList,omitempty"`
+	Confirm        bool   `json:"confirm" jsonschema:"required" jsonschema_description:"must be true to apply"`
+	DryRun         bool   `json:"dryRun,omitempty"`
+}
+
+type HostIpUpdateInput struct {
+	HostIpCreateInput
+	ExpectedDiffHash       string `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior host_ip_show; required unless ignoreExpectedDiffHash=true"`
+	IgnoreExpectedDiffHash bool   `json:"ignoreExpectedDiffHash,omitempty"`
+}
+
+type HostIpDeleteInput struct {
+	Profile                string `json:"profile,omitempty"`
+	Name                   string `json:"name" jsonschema:"required"`
+	ExpectedDiffHash       string `json:"expectedDiffHash,omitempty"`
+	IgnoreExpectedDiffHash bool   `json:"ignoreExpectedDiffHash,omitempty"`
+	Confirm                bool   `json:"confirm" jsonschema:"required"`
+	DryRun                 bool   `json:"dryRun,omitempty"`
+}
+
+func (s *Server) handleHostIpCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpCreateInput) (*sdkmcp.CallToolResult, any, error) {
+	profile := s.resolveProfile(in.Profile)
+	if !in.Confirm {
+		return s.errorEnvelopeResult(fmt.Errorf("%w: confirm: true is required to mutate", sophos.ErrInvalidRequest), profile)
+	}
+	input := svc.HostIPCreateInput{
+		Name: in.Name, IPFamily: in.IpFamily, HostType: in.HostType,
+		IPAddress: in.IpAddress, Subnet: in.Subnet,
+		StartIPAddress: in.StartIpAddress, EndIPAddress: in.EndIpAddress,
+		IPAddressList: in.IpAddressList,
+	}
+	result, err := s.hostIpSvc().Create(ctx, profile, input, in.DryRun)
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
+	body, err := renderMcpHostIpMutation(result)
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
+	return jsonResult(body)
+}
+
+func (s *Server) handleHostIpUpdate(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpUpdateInput) (*sdkmcp.CallToolResult, any, error) {
+	profile := s.resolveProfile(in.Profile)
+	if !in.Confirm {
+		return s.errorEnvelopeResult(fmt.Errorf("%w: confirm: true is required to mutate", sophos.ErrInvalidRequest), profile)
+	}
+	if in.ExpectedDiffHash == "" && !in.IgnoreExpectedDiffHash {
+		return s.errorEnvelopeResult(fmt.Errorf("%w: expectedDiffHash is required (or set ignoreExpectedDiffHash: true)", sophos.ErrInvalidRequest), profile)
+	}
+	input := svc.HostIPCreateInput{
+		Name: in.Name, IPFamily: in.IpFamily, HostType: in.HostType,
+		IPAddress: in.IpAddress, Subnet: in.Subnet,
+		StartIPAddress: in.StartIpAddress, EndIPAddress: in.EndIpAddress,
+		IPAddressList: in.IpAddressList,
+	}
+	result, err := s.hostIpSvc().Update(ctx, profile, input, in.ExpectedDiffHash, in.IgnoreExpectedDiffHash, in.DryRun)
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
+	body, err := renderMcpHostIpMutation(result)
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
+	return jsonResult(body)
+}
+
+func (s *Server) handleHostIpDelete(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpDeleteInput) (*sdkmcp.CallToolResult, any, error) {
+	profile := s.resolveProfile(in.Profile)
+	if !in.Confirm {
+		return s.errorEnvelopeResult(fmt.Errorf("%w: confirm: true is required to mutate", sophos.ErrInvalidRequest), profile)
+	}
+	if in.ExpectedDiffHash == "" && !in.IgnoreExpectedDiffHash {
+		return s.errorEnvelopeResult(fmt.Errorf("%w: expectedDiffHash is required (or set ignoreExpectedDiffHash: true)", sophos.ErrInvalidRequest), profile)
+	}
+	result, err := s.hostIpSvc().Delete(ctx, profile, in.Name, in.ExpectedDiffHash, in.IgnoreExpectedDiffHash, in.DryRun)
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
+	body, err := renderMcpHostIpMutation(result)
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
+	return jsonResult(body)
+}
+
+func renderMcpHostIpMutation(r *svc.HostIPMutationResult) ([]byte, error) {
+	if r.DryRun {
+		return render.PreviewEnvelope(r.Preview)
+	}
+	return render.HostIpMutationEnvelope(r)
 }

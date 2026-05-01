@@ -26,6 +26,7 @@ func newMCPServeCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				Catalog:        cat,
 				NewClient:      d.NewClient,
 				DefaultProfile: defaultProfile,
+				Audit:          d.Audit,
 			})
 			return s.Serve(cmd.Context(), &sdkmcp.StdioTransport{})
 		},

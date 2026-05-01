@@ -23,6 +23,7 @@ type Deps struct {
 	Catalog        *catalog.Catalog
 	NewClient      svc.ClientFactory
 	DefaultProfile string // from --profile flag at server startup; "" = use config currentProfile
+	Audit          *svc.AuditLog
 }
 
 // Server wraps an sdk-mcp Server and the project Deps.
