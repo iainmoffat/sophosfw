@@ -60,39 +60,57 @@ func (s *Server) handleHostIpList(ctx context.Context, _ *sdkmcp.CallToolRequest
 	var filter *sophos.FilterClause
 	if in.Filter != "" {
 		f, err := sophos.ParseFilterFlag(in.Filter)
-		if err != nil { return s.errorEnvelopeResult(err, profile) }
+		if err != nil {
+			return s.errorEnvelopeResult(err, profile)
+		}
 		filter = &f
 	}
 	out, err := s.hostIpSvc().List(ctx, profile, filter)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	body, err := render.HostIPListEnvelope("sophosfw.v1.hostIpList", out)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	return jsonResult(body)
 }
 
 func (s *Server) handleHostIpShow(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpShowInput) (*sdkmcp.CallToolResult, any, error) {
 	profile := s.resolveProfile(in.Profile)
 	h, err := s.hostIpSvc().Get(ctx, profile, in.Name)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	body, err := render.HostIPEnvelope(h)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	return jsonResult(body)
 }
 
 func (s *Server) handleHostIpSearch(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpSearchInput) (*sdkmcp.CallToolResult, any, error) {
 	profile := s.resolveProfile(in.Profile)
 	out, err := s.hostIpSvc().Search(ctx, profile, in.Query)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	body, err := render.HostIPListEnvelope("sophosfw.v1.hostIpSearch", out)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	return jsonResult(body)
 }
 
 func (s *Server) handleHostIpUsage(ctx context.Context, _ *sdkmcp.CallToolRequest, in HostIpUsageInput) (*sdkmcp.CallToolResult, any, error) {
 	profile := s.resolveProfile(in.Profile)
 	out, err := s.hostIpSvc().Usage(ctx, profile, in.Name, in.WithReferences)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	body, err := render.HostIPUsageEnvelope(out)
-	if err != nil { return s.errorEnvelopeResult(err, profile) }
+	if err != nil {
+		return s.errorEnvelopeResult(err, profile)
+	}
 	return jsonResult(body)
 }
