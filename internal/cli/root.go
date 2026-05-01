@@ -41,6 +41,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 
 	cat, _ := catalog.NewDefault()
 	root.AddCommand(newObjectCmd(d, cat))
+	root.AddCommand(newRawCmd(d))
 
 	return root
 }
