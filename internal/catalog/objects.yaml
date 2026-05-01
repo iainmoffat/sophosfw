@@ -57,11 +57,11 @@ objects:
 
   - tag: Zone
     aliases: [zone]
-    description: "Network zones"
+    description: "Network zones (LAN, WAN, DMZ, custom)"
     columns: [Name, Type, Description]
     filterable: [Name, Type]
     usageTag: ZoneStatistics
-    typedParser: ""
+    typedParser: zone
 
   - tag: Interface
     aliases: [interface]

@@ -16,5 +16,6 @@ func NewDefault() (*Catalog, error) {
 	c.RegisterParser("service", ServicesParser)
 	c.RegisterParser("fqdnhost", FQDNHostParser)
 	c.RegisterParser("machost", MACHostParser)
+	c.RegisterParser("zone", ZoneParser)
 	return c, nil
 }
