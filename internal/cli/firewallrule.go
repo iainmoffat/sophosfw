@@ -72,7 +72,12 @@ func newFirewallRuleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.firewallRule", rule)
+				b, err := render.FirewallRuleEnvelope(rule)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%v\n", rule)
 			return nil
@@ -87,12 +92,21 @@ func newFirewallRuleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 func renderRuleMapList(cmd *cobra.Command, cat *catalog.Catalog, tag, schema, profile string, count int, items []map[string]any) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	if jsonMode {
-		return render.WriteJSON(cmd.OutOrStdout(), schema, map[string]any{
-			"profile": profile,
-			"xmlTag":  tag,
-			"count":   count,
-			"items":   items,
-		})
+		var b []byte
+		var err error
+		switch tag {
+		case "FirewallRule":
+			b, err = render.FirewallRuleListEnvelope(&svc.FirewallRuleList{Profile: profile, Count: count, Items: items})
+		case "NATRule":
+			b, err = render.NATRuleListEnvelope(&svc.NATRuleList{Profile: profile, Count: count, Items: items})
+		default:
+			return fmt.Errorf("renderRuleMapList: unknown tag %q", tag)
+		}
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
 	}
 	entry, _ := cat.Resolve(tag)
 	headers := resolveColumns(cmd, entry.Columns)

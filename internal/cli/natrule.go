@@ -71,7 +71,12 @@ func newNATRuleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.natRule", rule)
+				b, err := render.NATRuleEnvelope(rule)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%v\n", rule)
 			return nil

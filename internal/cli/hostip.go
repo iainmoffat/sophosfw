@@ -73,7 +73,12 @@ func newHostIpShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.hostIp", h)
+				b, err := render.HostIPEnvelope(h)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n  IPAddress: %s\n  Subnet:    %s\n  Derived:   kind=%s cidr=%s\n",
 				h.Name, h.HostType, h.IPAddress, h.Subnet, h.Derived.Kind, h.Derived.CIDR)
@@ -112,18 +117,12 @@ func newHostIpUsageCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			payload := map[string]any{
-				"profile": out.Profile,
-				"name":    out.Name,
-				"records": out.Records,
+			b, err := render.HostIPUsageEnvelope(out)
+			if err != nil {
+				return err
 			}
-			if out.References != nil {
-				payload["references"] = out.References.Refs
-				if len(out.References.Errors) > 0 {
-					payload["referenceErrors"] = out.References.Errors
-				}
-			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.hostIpUsage", payload)
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 	c.Flags().BoolVar(&withRefs, "with-references", false, "scan reference graph (rules + groups) for the host")
@@ -133,12 +132,12 @@ func newHostIpUsageCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 func renderHostIpList(cmd *cobra.Command, cat *catalog.Catalog, schema string, list *svc.HostIPList) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	if jsonMode {
-		return render.WriteJSON(cmd.OutOrStdout(), schema, map[string]any{
-			"profile": list.Profile,
-			"xmlTag":  "IPHost",
-			"count":   list.Count,
-			"items":   list.Items,
-		})
+		b, err := render.HostIPListEnvelope(schema, list)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
 	}
 	entry, _ := cat.Resolve("IPHost")
 	headers := resolveColumns(cmd, entry.Columns)

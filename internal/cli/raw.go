@@ -30,19 +30,12 @@ func newRawGetCmd(d RootDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			body := map[string]any{}
-			for tag, recs := range r.Body {
-				items := make([]string, 0, len(recs))
-				for _, rec := range recs {
-					items = append(items, string(rec))
-				}
-				body[tag] = items
+			b, err := render.RawResponseEnvelope(r)
+			if err != nil {
+				return err
 			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.rawResponse", map[string]any{
-				"profile": r.Profile,
-				"xmlTag":  r.Tag,
-				"body":    body,
-			})
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 }
@@ -86,14 +79,12 @@ func newRawRequestCmd(d RootDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.preview", map[string]any{
-				"profile":        pv.Profile,
-				"mutating":       pv.Mutating,
-				"verbs":          pv.Verbs,
-				"redactedXml":    pv.RedactedXML,
-				"wouldSendBytes": pv.WouldSendBytes,
-				"warning":        pv.Warning,
-			})
+			b, err := render.PreviewEnvelope(pv)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "preview only (default in foundation phase)")

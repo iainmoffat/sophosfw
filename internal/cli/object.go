@@ -56,20 +56,12 @@ func newObjectListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 func renderObjectList(cmd *cobra.Command, out *svc.ObjectList, cat *catalog.Catalog) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	if jsonMode {
-		payload := map[string]any{
-			"profile": out.Profile,
-			"xmlTag":  out.Tag,
-			"count":   out.Count,
-			"items":   out.Items,
+		b, err := render.ObjectListEnvelope(out)
+		if err != nil {
+			return err
 		}
-		if out.Filter != nil {
-			payload["filter"] = map[string]any{
-				"field":    out.Filter.Field,
-				"criteria": out.Filter.Criteria,
-				"value":    out.Filter.Value,
-			}
-		}
-		return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.objectList", payload)
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
 	}
 	entry, _ := cat.Resolve(out.Tag)
 	headers := resolveColumns(cmd, entry.Columns)
@@ -118,13 +110,12 @@ func newObjectGetCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.object", map[string]any{
-					"profile": obj.Profile,
-					"xmlTag":  obj.Tag,
-					"name":    obj.Name,
-					"typed":   obj.Typed,
-					"data":    obj.Data,
-				})
+				b, err := render.ObjectEnvelope(obj)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s:\n%v\n", obj.Tag, obj.Name, obj.Data)
 			return nil
@@ -148,13 +139,12 @@ func newObjectUsageCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.objectUsage", map[string]any{
-				"profile":  u.Profile,
-				"xmlTag":   u.Tag,
-				"usageTag": u.UsageTag,
-				"name":     u.Name,
-				"records":  u.Records,
-			})
+			b, err := render.ObjectUsageEnvelope(u)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 	c.Flags().StringVar(&name, "name", "", "object name to look up usage for")
@@ -172,15 +162,12 @@ func newObjectSchemaCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.objectSchema", map[string]any{
-				"tag":         e.Tag,
-				"aliases":     e.Aliases,
-				"description": e.Description,
-				"columns":     e.Columns,
-				"filterable":  e.Filterable,
-				"usageTag":    e.UsageTag,
-				"typedParser": e.TypedParser,
-			})
+			b, err := render.ObjectSchemaEnvelope(e)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 }

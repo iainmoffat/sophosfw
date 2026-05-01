@@ -78,12 +78,12 @@ func newAuthStatusCmd(d RootDeps) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.authStatus", map[string]any{
-					"profile":            st.Profile,
-					"url":                st.URL,
-					"loggedIn":           st.LoggedIn,
-					"credentialsBackend": st.CredentialsBackend,
-				})
+				b, err := render.AuthStatusEnvelope(st)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "profile: %s\nurl: %s\nloggedIn: %t\nbackend: %s\n",
 				st.Profile, st.URL, st.LoggedIn, st.CredentialsBackend)
@@ -101,23 +101,19 @@ func newAuthTestCmd(d RootDeps) *cobra.Command {
 			a := &svc.AuthSvc{Config: d.Config, Creds: d.Creds, BaseDir: d.BaseDir, NewClient: d.NewClient}
 			r, err := a.Test(cmd.Context(), profile)
 			if err != nil {
-				_ = render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.connectionTest", map[string]any{
-					"profile":      r.Profile,
-					"ok":           false,
-					"latencyMs":    r.LatencyMs,
-					"apiReachable": r.APIReachable,
-					"authOk":       r.AuthOK,
-					"error":        r.Error,
-				})
+				b, envErr := render.ConnectionTestEnvelope(r)
+				if envErr != nil {
+					return envErr
+				}
+				_, _ = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.connectionTest", map[string]any{
-				"profile":      r.Profile,
-				"ok":           r.OK,
-				"latencyMs":    r.LatencyMs,
-				"apiReachable": r.APIReachable,
-				"authOk":       r.AuthOK,
-			})
+			b, err := render.ConnectionTestEnvelope(r)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 }
@@ -172,19 +168,12 @@ func newProfileListCmd(d RootDeps) *cobra.Command {
 			list := ps.List()
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				profiles := make([]map[string]any, 0, len(list))
-				for _, p := range list {
-					profiles = append(profiles, map[string]any{
-						"name":     p.Name,
-						"url":      p.URL,
-						"readOnly": p.ReadOnly,
-						"current":  p.Current,
-					})
+				b, err := render.ProfileListEnvelope(d.Config.CurrentProfile, list)
+				if err != nil {
+					return err
 				}
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.profileList", map[string]any{
-					"current":  d.Config.CurrentProfile,
-					"profiles": profiles,
-				})
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			for _, p := range list {
 				marker := "  "

@@ -67,7 +67,12 @@ func newServiceShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.service", v)
+				b, err := render.ServiceEnvelope(v)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n  Derived: protocol=%s portRange=%s\n",
 				v.Name, v.Type, v.Derived.Protocol, v.Derived.PortRange)
@@ -106,18 +111,12 @@ func newServiceUsageCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			payload := map[string]any{
-				"profile": out.Profile,
-				"name":    out.Name,
-				"records": out.Records,
+			b, err := render.ServiceUsageEnvelope(out)
+			if err != nil {
+				return err
 			}
-			if out.References != nil {
-				payload["references"] = out.References.Refs
-				if len(out.References.Errors) > 0 {
-					payload["referenceErrors"] = out.References.Errors
-				}
-			}
-			return render.WriteJSON(cmd.OutOrStdout(), "sophosfw.v1.serviceUsage", payload)
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
 		},
 	}
 	c.Flags().BoolVar(&withRefs, "with-references", false, "scan reference graph (rules + groups) for the service")
@@ -127,12 +126,12 @@ func newServiceUsageCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 func renderServiceList(cmd *cobra.Command, cat *catalog.Catalog, schema string, list *svc.ServiceList) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	if jsonMode {
-		return render.WriteJSON(cmd.OutOrStdout(), schema, map[string]any{
-			"profile": list.Profile,
-			"xmlTag":  "Services",
-			"count":   list.Count,
-			"items":   list.Items,
-		})
+		b, err := render.ServiceListEnvelope(schema, list)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
 	}
 	entry, _ := cat.Resolve("Services")
 	headers := resolveColumns(cmd, entry.Columns)
