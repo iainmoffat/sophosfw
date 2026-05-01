@@ -48,12 +48,12 @@ objects:
     typedParser: ""
 
   - tag: MACHost
-    aliases: [mac]
-    description: "MAC host objects"
+    aliases: [mac, mac-host, host-mac]
+    description: "MAC address host objects"
     columns: [Name, Type, MACAddress]
-    filterable: [Name, MACAddress]
+    filterable: [Name, Type, MACAddress]
     usageTag: MACHostStatistics
-    typedParser: ""
+    typedParser: machost
 
   - tag: Zone
     aliases: [zone]
