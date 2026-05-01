@@ -80,3 +80,35 @@ func errorsIsAny(err error, targets ...error) bool {
 	}
 	return false
 }
+
+func TestIntegration_HostIPList_RoundTrips(t *testing.T) {
+	c := newClient(t)
+	_, err := c.Do(context.Background(), sophos.Envelope{
+		Operations: []sophos.Op{sophos.GetOp{XMLTag: "IPHost"}},
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_ServiceList_RoundTrips(t *testing.T) {
+	c := newClient(t)
+	_, err := c.Do(context.Background(), sophos.Envelope{
+		Operations: []sophos.Op{sophos.GetOp{XMLTag: "Services"}},
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_FirewallRuleList_RoundTrips(t *testing.T) {
+	c := newClient(t)
+	_, err := c.Do(context.Background(), sophos.Envelope{
+		Operations: []sophos.Op{sophos.GetOp{XMLTag: "FirewallRule"}},
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_NATRuleList_RoundTrips(t *testing.T) {
+	c := newClient(t)
+	_, err := c.Do(context.Background(), sophos.Envelope{
+		Operations: []sophos.Op{sophos.GetOp{XMLTag: "NATRule"}},
+	})
+	require.NoError(t, err)
+}
