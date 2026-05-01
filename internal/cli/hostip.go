@@ -23,14 +23,20 @@ func newHostIpCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		newHostIpShowCmd(d, cat),
 		newHostIpSearchCmd(d, cat),
 		newHostIpUsageCmd(d, cat),
+		newHostIpCreateCmd(d, cat),
+		newHostIpUpdateCmd(d, cat),
+		newHostIpDeleteCmd(d, cat),
 	)
 	return cmd
 }
 
 func hostIpSvc(d RootDeps, cat *catalog.Catalog) *svc.HostIPSvc {
-	return &svc.HostIPSvc{Inner: &svc.ObjectSvc{
-		Config: d.Config, Creds: d.Creds, Catalog: cat, NewClient: d.NewClient,
-	}}
+	return &svc.HostIPSvc{
+		Inner: &svc.ObjectSvc{
+			Config: d.Config, Creds: d.Creds, Catalog: cat, NewClient: d.NewClient,
+		},
+		Audit: d.Audit,
+	}
 }
 
 func newHostIpListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
@@ -61,7 +67,8 @@ func newHostIpListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 }
 
 func newHostIpShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
-	return &cobra.Command{
+	var includeDiffHash bool
+	cmd := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Show one IP host object by name",
 		Args:  cobra.ExactArgs(1),
@@ -73,9 +80,22 @@ func newHostIpShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			jsonMode, _ := cmd.Flags().GetBool("json")
 			if jsonMode {
-				b, err := render.HostIPEnvelope(h)
-				if err != nil {
-					return err
+				var b []byte
+				if includeDiffHash {
+					hash, err := svc.DiffHash(h.IPHost)
+					if err != nil {
+						return err
+					}
+					b, err = render.HostIPEnvelopeWithDiffHash(h, hash)
+					if err != nil {
+						return err
+					}
+				} else {
+					var err error
+					b, err = render.HostIPEnvelope(h)
+					if err != nil {
+						return err
+					}
 				}
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
@@ -85,6 +105,8 @@ func newHostIpShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&includeDiffHash, "include-diff-hash", true, "include _diffHash in JSON output")
+	return cmd
 }
 
 func newHostIpSearchCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
@@ -178,4 +200,188 @@ func hostIpCell(h svc.HostIP, col string) string {
 		return h.Derived.Kind
 	}
 	return ""
+}
+
+func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
+	var (
+		name       string
+		hostType   string
+		ipAddress  string
+		subnet     string
+		startIP    string
+		endIP      string
+		ipFamily   string
+		yes        bool
+	)
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new IP host object",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if name == "" || hostType == "" || ipAddress == "" {
+				return fmt.Errorf("--name, --host-type, and --ip-address are required")
+			}
+			profile, _ := cmd.Flags().GetString("profile")
+			input := svc.HostIPCreateInput{
+				Name:      name,
+				HostType:  hostType,
+				IPAddress: ipAddress,
+				Subnet:    subnet,
+				IPFamily:  ipFamily,
+			}
+			if hostType == "IPRange" {
+				input.StartIPAddress = startIP
+				input.EndIPAddress = endIP
+			}
+			result, err := hostIpSvc(d, cat).Create(cmd.Context(), profile, input, !yes)
+			if err != nil {
+				return err
+			}
+			if result.DryRun {
+				jsonMode, _ := cmd.Flags().GetBool("json")
+				if jsonMode {
+					b, err := render.PreviewEnvelope(result.Preview)
+					if err != nil {
+						return err
+					}
+					_, err = cmd.OutOrStdout().Write(b)
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+				return nil
+			}
+			return renderHostIpMutation(cmd, "create", result)
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "name of the host object")
+	cmd.Flags().StringVar(&hostType, "host-type", "", "host type (Network|IP|IPRange|IPList)")
+	cmd.Flags().StringVar(&ipAddress, "ip-address", "", "IP address")
+	cmd.Flags().StringVar(&subnet, "subnet", "", "subnet mask")
+	cmd.Flags().StringVar(&startIP, "start-ip", "", "start IP for IPRange")
+	cmd.Flags().StringVar(&endIP, "end-ip", "", "end IP for IPRange")
+	cmd.Flags().StringVar(&ipFamily, "ip-family", "IPv4", "IP family (IPv4|IPv6)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	return cmd
+}
+
+func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
+	var (
+		name           string
+		hostType       string
+		ipAddress      string
+		subnet         string
+		startIP        string
+		endIP          string
+		ipFamily       string
+		expectedHash   string
+		ignoreHash     bool
+		yes            bool
+	)
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update an existing IP host object",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if name == "" || hostType == "" || ipAddress == "" {
+				return fmt.Errorf("--name, --host-type, and --ip-address are required")
+			}
+			if yes && expectedHash == "" && !ignoreHash {
+				return fmt.Errorf("expected-diff-hash is required for update --yes (or pass --ignore-diff-hash)")
+			}
+			profile, _ := cmd.Flags().GetString("profile")
+			input := svc.HostIPCreateInput{
+				Name:      name,
+				HostType:  hostType,
+				IPAddress: ipAddress,
+				Subnet:    subnet,
+				IPFamily:  ipFamily,
+			}
+			if hostType == "IPRange" {
+				input.StartIPAddress = startIP
+				input.EndIPAddress = endIP
+			}
+			result, err := hostIpSvc(d, cat).Update(cmd.Context(), profile, input, expectedHash, ignoreHash, !yes)
+			if err != nil {
+				return err
+			}
+			if result.DryRun {
+				jsonMode, _ := cmd.Flags().GetBool("json")
+				if jsonMode {
+					b, err := render.PreviewEnvelope(result.Preview)
+					if err != nil {
+						return err
+					}
+					_, err = cmd.OutOrStdout().Write(b)
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+				return nil
+			}
+			return renderHostIpMutation(cmd, "update", result)
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "name of the host object")
+	cmd.Flags().StringVar(&hostType, "host-type", "", "host type (Network|IP|IPRange|IPList)")
+	cmd.Flags().StringVar(&ipAddress, "ip-address", "", "IP address")
+	cmd.Flags().StringVar(&subnet, "subnet", "", "subnet mask")
+	cmd.Flags().StringVar(&startIP, "start-ip", "", "start IP for IPRange")
+	cmd.Flags().StringVar(&endIP, "end-ip", "", "end IP for IPRange")
+	cmd.Flags().StringVar(&ipFamily, "ip-family", "IPv4", "IP family (IPv4|IPv6)")
+	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "expected diff hash for optimistic concurrency")
+	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip diff hash check")
+	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	return cmd
+}
+
+func newHostIpDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
+	var (
+		expectedHash string
+		ignoreHash   bool
+		yes          bool
+	)
+	cmd := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete an IP host object",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if yes && expectedHash == "" && !ignoreHash {
+				return fmt.Errorf("expected-diff-hash is required for delete --yes (or pass --ignore-diff-hash)")
+			}
+			profile, _ := cmd.Flags().GetString("profile")
+			result, err := hostIpSvc(d, cat).Delete(cmd.Context(), profile, args[0], expectedHash, ignoreHash, !yes)
+			if err != nil {
+				return err
+			}
+			if result.DryRun {
+				jsonMode, _ := cmd.Flags().GetBool("json")
+				if jsonMode {
+					b, err := render.PreviewEnvelope(result.Preview)
+					if err != nil {
+						return err
+					}
+					_, err = cmd.OutOrStdout().Write(b)
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+				return nil
+			}
+			return renderHostIpMutation(cmd, "delete", result)
+		},
+	}
+	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "expected diff hash for optimistic concurrency")
+	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip diff hash check")
+	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	return cmd
+}
+
+func renderHostIpMutation(cmd *cobra.Command, operation string, result *svc.HostIPMutationResult) error {
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	if !jsonMode {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s applied\n", operation)
+		return nil
+	}
+	b, err := render.HostIpMutationEnvelope(operation, true, result.Profile)
+	if err != nil {
+		return err
+	}
+	_, err = cmd.OutOrStdout().Write(b)
+	return err
 }

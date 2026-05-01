@@ -6,6 +6,7 @@ package render
 
 import (
 	"bytes"
+	"encoding/json"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/svc"
@@ -154,6 +155,20 @@ func HostIPEnvelope(h *svc.HostIP) ([]byte, error) {
 	return marshalEnvelope("sophosfw.v1.hostIp", h)
 }
 
+// HostIPEnvelopeWithDiffHash renders sophosfw.v1.hostIp with _diffHash field.
+func HostIPEnvelopeWithDiffHash(h *svc.HostIP, hash string) ([]byte, error) {
+	payload := map[string]any{
+		"_diffHash": hash,
+	}
+	hbytes, _ := json.Marshal(h)
+	var hmap map[string]any
+	json.Unmarshal(hbytes, &hmap)
+	for k, v := range hmap {
+		payload[k] = v
+	}
+	return marshalEnvelope("sophosfw.v1.hostIp", payload)
+}
+
 // HostIPUsageEnvelope renders sophosfw.v1.hostIpUsage.
 func HostIPUsageEnvelope(u *svc.HostIPUsage) ([]byte, error) {
 	payload := map[string]any{
@@ -168,6 +183,16 @@ func HostIPUsageEnvelope(u *svc.HostIPUsage) ([]byte, error) {
 		}
 	}
 	return marshalEnvelope("sophosfw.v1.hostIpUsage", payload)
+}
+
+// HostIpMutationEnvelope renders sophosfw.v1.hostIpMutation.
+func HostIpMutationEnvelope(operation string, applied bool, profile string) ([]byte, error) {
+	payload := map[string]any{
+		"operation": operation,
+		"applied":   applied,
+		"profile":   profile,
+	}
+	return marshalEnvelope("sophosfw.v1.hostIpMutation", payload)
 }
 
 // ServiceListEnvelope renders sophosfw.v1.serviceList or sophosfw.v1.serviceSearch.

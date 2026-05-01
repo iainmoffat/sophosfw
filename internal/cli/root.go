@@ -20,6 +20,7 @@ type RootDeps struct {
 	Config    *config.Config
 	Creds     creds.Store
 	NewClient svc.ClientFactory
+	Audit     *svc.AuditLog
 }
 
 // NewRoot constructs the cobra root command with all subcommands wired in.

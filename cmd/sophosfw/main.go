@@ -28,6 +28,7 @@ func main() {
 		os.Exit(2)
 	}
 	store := creds.New(baseDir)
+	audit := svc.NewAuditLog(baseDir, cfg.AuditLogEnabled())
 
 	root := cli.NewRoot(cli.RootDeps{
 		Version:  version,
@@ -35,6 +36,7 @@ func main() {
 		SkillDir: filepath.Join(".claude", "skills", "sophos-firewall"),
 		Config:   cfg,
 		Creds:    store,
+		Audit:    audit,
 		NewClient: func(p config.Profile, c creds.Credentials) svc.Client {
 			// Wire CLI flags here once we have access to them; for now, use defaults.
 			return svc.DefaultClientFactory(false)(p, c)
