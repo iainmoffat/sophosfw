@@ -74,4 +74,5 @@ func (s *Server) registerAll() {
 	s.registerHostIP()
 	s.registerService()
 	s.registerFirewallRule()
+	s.registerNATRule()
 }
