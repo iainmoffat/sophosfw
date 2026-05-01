@@ -46,6 +46,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 	root.AddCommand(newRawCmd(d))
 	root.AddCommand(newMCPCmd(d, cat))
 	root.AddCommand(newHostCmd(d, cat))
+	root.AddCommand(newServiceCmd(d, cat))
 
 	return root
 }
