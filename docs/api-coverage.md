@@ -7,7 +7,7 @@ including ones not listed above).
 
 | Area | XML Tag | CLI Command | MCP Tool | Get | Add | Update | Remove | Usage | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Host | IPHost | object list/get IPHost; host ip list/show/search/usage | host_ip_list/show/search/usage; object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes (with --with-references) | Phase 3 |
+| Host | IPHost | object list/get IPHost; host ip list/show/search/usage/create/update/delete | host_ip_list/show/search/usage/create/update/delete; object_list/get/search/usage | yes | yes (sophosfw host ip create; host_ip_create) | yes (sophosfw host ip update; host_ip_update) | yes (sophosfw host ip delete; host_ip_delete) | yes (with --with-references) | Phase 6 |
 | Host | IPHostGroup | object list/get IPHostGroup | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | partial |
 | Host | FQDNHost | object list/get FQDNHost (typed Phase 3) | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | Phase 3 |
 | Host | FQDNHostGroup | object list/get FQDNHostGroup | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | partial |

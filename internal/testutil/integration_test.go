@@ -162,3 +162,34 @@ func TestIntegration_MCPServer_HostIpListOverWire(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, tc.Text, `"schema": "sophosfw.v1.hostIpList"`)
 }
+
+func TestIntegration_HostIPCreate_DryRun(t *testing.T) {
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+	audit := svc.NewAuditLog(t.TempDir(), false)
+
+	hostIp := &svc.HostIPSvc{
+		Inner: &svc.ObjectSvc{
+			Config: cfg, Creds: store, Catalog: cat,
+			NewClient: svc.DefaultClientFactory(false),
+		},
+		Audit: audit,
+	}
+
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	result, err := hostIp.Create(context.Background(), profileName, svc.HostIPCreateInput{
+		Name: "sophosfw-test-do-not-create", HostType: "IP", IPAddress: "192.0.2.1",
+	}, true)
+	require.NoError(t, err)
+	require.True(t, result.DryRun)
+	require.NotNil(t, result.Preview)
+	require.True(t, result.Preview.Mutating)
+	require.Contains(t, result.Preview.Verbs, "Set:add")
+}
