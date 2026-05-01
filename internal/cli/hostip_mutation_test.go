@@ -81,6 +81,9 @@ func TestHostIp_Create_YesApplies(t *testing.T) {
 	require.NoError(t, root.Execute())
 	require.Contains(t, out.String(), `"schema": "sophosfw.v1.hostIpMutation"`)
 	require.Contains(t, out.String(), `"applied": true`)
+	require.Contains(t, out.String(), `"name": "LAN-network"`)
+	require.Contains(t, out.String(), `"item":`)
+	require.Contains(t, out.String(), `"_diffHash":`)
 	require.Len(t, fc.sent, 1)
 	require.Contains(t, string(fc.sent[0]), `<Set operation="add">`)
 }
@@ -121,6 +124,7 @@ func TestHostIp_Delete_PositionalArg(t *testing.T) {
 	require.NoError(t, root.Execute())
 	require.Contains(t, out.String(), `"schema": "sophosfw.v1.hostIpMutation"`)
 	require.Contains(t, out.String(), `"operation": "delete"`)
+	require.Contains(t, out.String(), `"name": "X"`)
 	require.Len(t, fc.sent, 1)
 	require.Contains(t, string(fc.sent[0]), `<Remove>`)
 }

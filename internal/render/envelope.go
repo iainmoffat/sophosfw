@@ -186,11 +186,23 @@ func HostIPUsageEnvelope(u *svc.HostIPUsage) ([]byte, error) {
 }
 
 // HostIpMutationEnvelope renders sophosfw.v1.hostIpMutation.
-func HostIpMutationEnvelope(operation string, applied bool, profile string) ([]byte, error) {
+func HostIpMutationEnvelope(r *svc.HostIPMutationResult) ([]byte, error) {
 	payload := map[string]any{
-		"operation": operation,
-		"applied":   applied,
-		"profile":   profile,
+		"profile":   r.Profile,
+		"operation": r.Operation,
+		"name":      r.Name,
+		"applied":   !r.DryRun,
+	}
+	if r.Item != nil {
+		hash, _ := svc.DiffHash(r.Item.IPHost)
+		raw, err := json.Marshal(r.Item)
+		if err == nil {
+			var itemMap map[string]any
+			if err := json.Unmarshal(raw, &itemMap); err == nil {
+				itemMap["_diffHash"] = hash
+				payload["item"] = itemMap
+			}
+		}
 	}
 	return marshalEnvelope("sophosfw.v1.hostIpMutation", payload)
 }

@@ -374,7 +374,7 @@ func renderHostIpMutation(cmd *cobra.Command, operation string, result *svc.Host
 		fmt.Fprintf(cmd.OutOrStdout(), "%s applied\n", operation)
 		return nil
 	}
-	b, err := render.HostIpMutationEnvelope(operation, true, result.Profile)
+	b, err := render.HostIpMutationEnvelope(result)
 	if err != nil {
 		return err
 	}
