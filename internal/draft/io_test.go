@@ -131,3 +131,89 @@ func TestReadDraft_NormalizesCRLF(t *testing.T) {
 	require.Equal(t, "X", d.Rule)
 	require.Contains(t, string(d.Body), "Name: X")
 }
+
+func TestReadDraft_OperationHeader_Create(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "create.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# profile: home\n# rule: X\n# operation: create\n# pulledAt: 2026-05-02T15:30:00Z\n# diffHash: \n---\nName: X\n"),
+		0o600))
+	d, err := ReadDraft(path)
+	require.NoError(t, err)
+	require.Equal(t, "create", d.Operation)
+	require.Empty(t, d.DiffHash)
+}
+
+func TestReadDraft_OperationHeader_Update(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "update.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# profile: home\n# rule: X\n# operation: update\n# pulledAt: 2026-05-02T15:30:00Z\n# diffHash: 8b3bc27fc63cb9792cbb563949ae2279abe2b016fe9ca00e901973e69f2e6f50\n---\nName: X\n"),
+		0o600))
+	d, err := ReadDraft(path)
+	require.NoError(t, err)
+	require.Equal(t, "update", d.Operation)
+}
+
+func TestReadDraft_OperationHeader_DefaultsToUpdate(t *testing.T) {
+	// Backward-compat: Phase 7/8 drafts have no `# operation:` line.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# profile: home\n# rule: X\n# pulledAt: 2026-05-02T15:30:00Z\n# diffHash: 8b3bc27fc63cb9792cbb563949ae2279abe2b016fe9ca00e901973e69f2e6f50\n---\nName: X\n"),
+		0o600))
+	d, err := ReadDraft(path)
+	require.NoError(t, err)
+	require.Equal(t, "update", d.Operation)
+}
+
+func TestReadDraft_OperationHeader_RejectsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bogus.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# profile: home\n# rule: X\n# operation: bogus\n# pulledAt: 2026-05-02T15:30:00Z\n# diffHash: 8b3bc27fc63cb9792cbb563949ae2279abe2b016fe9ca00e901973e69f2e6f50\n---\nName: X\n"),
+		0o600))
+	_, err := ReadDraft(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "operation")
+}
+
+func TestReadDraft_RejectsCreateWithDiffHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# profile: home\n# rule: X\n# operation: create\n# pulledAt: 2026-05-02T15:30:00Z\n# diffHash: 8b3bc27fc63cb9792cbb563949ae2279abe2b016fe9ca00e901973e69f2e6f50\n---\nName: X\n"),
+		0o600))
+	_, err := ReadDraft(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create")
+}
+
+func TestReadDraft_RejectsUpdateWithEmptyDiffHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# profile: home\n# rule: X\n# operation: update\n# pulledAt: 2026-05-02T15:30:00Z\n# diffHash: \n---\nName: X\n"),
+		0o600))
+	_, err := ReadDraft(path)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "diffHash")
+}
+
+func TestWriteDraft_RoundTripsOperation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "round.yaml")
+	d := &Draft{
+		Profile:   "home",
+		Rule:      "X",
+		Operation: "create",
+		PulledAt:  mustParseTime(t, "2026-05-02T15:30:00Z"),
+		DiffHash:  "",
+		Body:      []byte("Name: X\n"),
+	}
+	require.NoError(t, WriteDraft(path, d))
+	got, err := ReadDraft(path)
+	require.NoError(t, err)
+	require.Equal(t, "create", got.Operation)
+	require.Empty(t, got.DiffHash)
+}

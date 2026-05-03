@@ -22,11 +22,12 @@ var (
 // Draft holds the parsed shape of a YAML draft file: header metadata
 // + the editable YAML body.
 type Draft struct {
-	Profile  string
-	Rule     string
-	PulledAt time.Time
-	DiffHash string
-	Body     []byte
+	Profile   string
+	Rule      string
+	Operation string    // "create" | "update". Empty defaults to "update" on read.
+	PulledAt  time.Time
+	DiffHash  string
+	Body      []byte
 }
 
 var hashRe = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -72,6 +73,8 @@ func ReadDraft(path string) (*Draft, error) {
 			d.Profile = val
 		case "rule":
 			d.Rule = val
+		case "operation":
+			d.Operation = val
 		case "pulledat":
 			t, err := time.Parse(time.RFC3339, val)
 			if err != nil {
@@ -79,7 +82,9 @@ func ReadDraft(path string) (*Draft, error) {
 			}
 			d.PulledAt = t
 		case "diffhash":
-			if !hashRe.MatchString(val) {
+			// Empty diffHash is valid (for create operations), but if present,
+			// it must be a valid 64-char hex hash.
+			if val != "" && !hashRe.MatchString(val) {
 				return nil, fmt.Errorf("draft header diffHash invalid: must be 64-char lowercase hex, got %q", val)
 			}
 			d.DiffHash = val
@@ -97,8 +102,20 @@ func ReadDraft(path string) (*Draft, error) {
 	if d.PulledAt.IsZero() {
 		return nil, fmt.Errorf("draft header missing pulledAt")
 	}
-	if d.DiffHash == "" {
-		return nil, fmt.Errorf("draft header missing diffHash")
+	// Operation defaults to "update" for backward compatibility with
+	// Phase 7/8 drafts.
+	if d.Operation == "" {
+		d.Operation = "update"
+	}
+	if d.Operation != "create" && d.Operation != "update" {
+		return nil, fmt.Errorf("draft header operation invalid: must be 'create' or 'update', got %q", d.Operation)
+	}
+	// Operation/diffHash consistency:
+	if d.Operation == "create" && d.DiffHash != "" {
+		return nil, fmt.Errorf("draft header inconsistency: operation=create requires empty diffHash")
+	}
+	if d.Operation == "update" && d.DiffHash == "" {
+		return nil, fmt.Errorf("draft header missing diffHash (required for operation=update)")
 	}
 	parts := bytes.SplitN(b, []byte("\n---\n"), 2)
 	if len(parts) != 2 {
@@ -119,6 +136,11 @@ func WriteDraft(path string, d *Draft) error {
 	fmt.Fprintln(&buf, "# sophosfw firewall rule draft v1")
 	fmt.Fprintf(&buf, "# profile: %s\n", d.Profile)
 	fmt.Fprintf(&buf, "# rule: %s\n", d.Rule)
+	op := d.Operation
+	if op == "" {
+		op = "update"
+	}
+	fmt.Fprintf(&buf, "# operation: %s\n", op)
 	fmt.Fprintf(&buf, "# pulledAt: %s\n", d.PulledAt.UTC().Format(time.RFC3339))
 	fmt.Fprintf(&buf, "# diffHash: %s\n", d.DiffHash)
 	fmt.Fprintln(&buf, "# DO NOT EDIT ABOVE THIS LINE — push reads this header to verify drift")
