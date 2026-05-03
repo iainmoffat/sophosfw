@@ -642,3 +642,108 @@ func TestFirewallRuleSvc_Diff_CreateDraft_Errors(t *testing.T) {
 	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
 	require.Contains(t, err.Error(), "no snapshot")
 }
+
+func TestFirewallRuleSvc_UpdateInline_DryRun(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	out, err := svc.UpdateInline(context.Background(), "home", "X", body, hash, false, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.Equal(t, "update", out.Operation)
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_UpdateInline_Apply(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	out, err := svc.UpdateInline(context.Background(), "home", "X", body, hash, false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "update", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="update">`)
+}
+
+func TestFirewallRuleSvc_UpdateInline_DiffHashMismatch_Rejects(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, live)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	_, err := svc.UpdateInline(context.Background(), "home", "X", body,
+		"definitely-wrong-hash-0000000000000000000000000000000000000000",
+		false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_UpdateInline_IgnoreHash_Applies(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, live)
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	_, err := svc.UpdateInline(context.Background(), "home", "X", body, "", true, false)
+	require.NoError(t, err)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestFirewallRuleSvc_UpdateInline_RequiredFieldMissing_Rejects(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+		// PolicyType missing.
+	}
+	_, err = svc.UpdateInline(context.Background(), "home", "X", body, hash, false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Contains(t, err.Error(), "PolicyType")
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_UpdateInline_AuditTagsPush(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	_, err = svc.UpdateInline(context.Background(), "home", "X", body, hash, false, false)
+	require.NoError(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"firewall_rule_push"`)
+}

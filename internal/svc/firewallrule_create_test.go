@@ -131,3 +131,104 @@ func TestFirewallRuleSvc_New_RuleNameWithSpecialChars(t *testing.T) {
 		})
 	}
 }
+
+func TestFirewallRuleSvc_CreateInline_DryRun(t *testing.T) {
+	body := map[string]any{
+		"Name":       "X",
+		"Status":     "Disable",
+		"IPFamily":   "IPv4",
+		"PolicyType": "Network",
+		"NetworkPolicy": map[string]any{
+			"Action":         "Drop",
+			"SourceNetworks": map[string]any{"Network": "Russian Federation"},
+		},
+	}
+	svc, fc, _ := newFwRuleSvc(t, nil)
+	out, err := svc.CreateInline(context.Background(), "home", "X", body, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.Equal(t, "create", out.Operation)
+	require.NotNil(t, out.Preview)
+	require.True(t, out.Preview.Mutating)
+	require.Empty(t, fc.sent, "dry-run must not send")
+}
+
+func TestFirewallRuleSvc_CreateInline_Apply(t *testing.T) {
+	body := map[string]any{
+		"Name":       "X",
+		"Status":     "Disable",
+		"IPFamily":   "IPv4",
+		"PolicyType": "Network",
+		"NetworkPolicy": map[string]any{
+			"Action":         "Drop",
+			"SourceNetworks": map[string]any{"Network": "Russian Federation"},
+		},
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	out, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "create", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="add">`)
+	require.Contains(t, string(fc.sent[0]), `<FirewallRule>`)
+	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+}
+
+func TestFirewallRuleSvc_CreateInline_Apply_WritesFirstSnapshot(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, baseDir := newFwRuleSvc(t, body)
+	snaps0, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
+	require.NoError(t, err)
+	require.Empty(t, snaps0)
+
+	_, err = svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.NoError(t, err)
+
+	snaps1, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
+	require.NoError(t, err)
+	require.Len(t, snaps1, 1)
+}
+
+func TestFirewallRuleSvc_CreateInline_RequiredFieldMissing_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+		// PolicyType missing.
+	}
+	svc, fc, _ := newFwRuleSvc(t, nil)
+	_, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Contains(t, err.Error(), "PolicyType")
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_CreateInline_ReadOnlyProfile_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, nil)
+	p, ok := svc.Inner.Config.Profiles["home"]
+	require.True(t, ok)
+	p.ReadOnly = true
+	svc.Inner.Config.Profiles["home"] = p
+
+	_, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrReadOnlyViolation))
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_CreateInline_AuditTagsCreate(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, body)
+	_, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.NoError(t, err)
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"firewall_rule_create"`)
+}
