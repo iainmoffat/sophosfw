@@ -467,7 +467,9 @@ func safetyRedact(xml []byte) []byte               { return safety.RedactXML(xml
 
 // Update issues <Set operation="update"><IPHost>...</IPHost></Set>. Requires
 // expectedHash unless ignoreHash=true. Compares against the current record's
-// hash; mismatch returns ErrDiffHashMismatch.
+// hash; mismatch returns ErrDiffHashMismatch. If dryRun is true, returns a
+// Preview envelope without sending; if false, applies the update and returns
+// the refetched item.
 func (s *HostIPSvc) Update(
 	ctx context.Context,
 	profileName string,
@@ -480,7 +482,8 @@ func (s *HostIPSvc) Update(
 }
 
 // Delete issues <Remove><IPHost><Name>X</Name></IPHost></Remove>. Same hash
-// semantics as Update.
+// semantics as Update. If dryRun is true, returns a Preview envelope without
+// sending; if false, sends the Remove envelope.
 func (s *HostIPSvc) Delete(
 	ctx context.Context,
 	profileName, name, expectedHash string,

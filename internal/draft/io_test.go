@@ -108,3 +108,15 @@ func TestErrSnapshotMissing_Defined(t *testing.T) {
 	require.NotNil(t, ErrSnapshotMissing)
 	require.True(t, errors.Is(ErrSnapshotMissing, ErrSnapshotMissing))
 }
+
+func TestReadDraft_HeaderKey_CaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "case.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("# Profile: home\n# Rule: X\n# PulledAt: 2026-05-02T15:30:00Z\n# DiffHash: 8b3bc27fc63cb9792cbb563949ae2279abe2b016fe9ca00e901973e69f2e6f50\n---\nName: X\n"),
+		0o600))
+	d, err := ReadDraft(path)
+	require.NoError(t, err)
+	require.Equal(t, "home", d.Profile)
+	require.Equal(t, "X", d.Rule)
+}

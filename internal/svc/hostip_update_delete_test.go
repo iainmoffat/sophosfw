@@ -122,3 +122,48 @@ func TestHostIPSvc_Delete_Apply(t *testing.T) {
 	require.Contains(t, string(body), `"operation":"delete"`)
 	require.Contains(t, string(body), `"objectName":"X"`)
 }
+
+func TestHostIPSvc_Update_DryRun(t *testing.T) {
+	current := json.RawMessage(`{"Name":"LAN-network","IPFamily":"IPv4","HostType":"Network","IPAddress":"10.0.0.0","Subnet":"255.255.255.0"}`)
+	s, fc, auditDir := newCreateTestSvc(t, false, []json.RawMessage{current})
+
+	hash, err := DiffHash(catalog.IPHost{
+		Name: "LAN-network", IPFamily: "IPv4", HostType: "Network",
+		IPAddress: "10.0.0.0", Subnet: "255.255.255.0",
+	})
+	require.NoError(t, err)
+
+	out, err := s.Update(context.Background(), "home", HostIPCreateInput{
+		Name: "LAN-network", HostType: "Network",
+		IPAddress: "10.0.0.0", Subnet: "255.255.252.0",
+	}, hash, false, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.NotNil(t, out.Preview)
+	require.Empty(t, fc.sentEnvelopes, "dry-run must not send the envelope")
+
+	body, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"operation":"update"`)
+	require.Contains(t, string(body), `"result":"ok (dry-run)"`)
+}
+
+func TestHostIPSvc_Delete_DryRun(t *testing.T) {
+	current := catalog.IPHost{Name: "X", IPFamily: "IPv4", HostType: "IP", IPAddress: "1.1.1.1"}
+	hash, err := DiffHash(current)
+	require.NoError(t, err)
+	s, fc, auditDir := newCreateTestSvc(t, false, []json.RawMessage{
+		json.RawMessage(`{"Name":"X","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`),
+	})
+
+	out, err := s.Delete(context.Background(), "home", "X", hash, false, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.NotNil(t, out.Preview)
+	require.Empty(t, fc.sentEnvelopes, "dry-run must not send the envelope")
+
+	body, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"operation":"delete"`)
+	require.Contains(t, string(body), `"result":"ok (dry-run)"`)
+}

@@ -78,10 +78,10 @@ func (s *FirewallRuleSvc) Pull(ctx context.Context, profileName, ruleName string
 		Body:     yamlBytes,
 	}
 
-	if err := draft.WriteDraft(snapPath, d); err != nil {
+	if err := draft.WriteDraft(draftPath, d); err != nil {
 		return nil, err
 	}
-	if err := draft.WriteDraft(draftPath, d); err != nil {
+	if err := draft.WriteDraft(snapPath, d); err != nil {
 		return nil, err
 	}
 

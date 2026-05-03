@@ -122,3 +122,55 @@ func TestHostIpDelete_Handler_DiffHashMatch_Applies(t *testing.T) {
 	require.Contains(t, textOf(out), `"operation": "delete"`)
 	require.Len(t, fc.sent, 1)
 }
+
+func TestHostIpUpdate_Handler_DryRun(t *testing.T) {
+	current := catalog.IPHost{Name: "X", IPFamily: "IPv4", HostType: "IP", IPAddress: "1.1.1.1"}
+	hash, _ := svc.DiffHash(current)
+	s, fc := newMutMcpServer(t, map[string][]json.RawMessage{
+		"IPHost": {json.RawMessage(`{"Name":"X","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`)},
+	})
+	out, _, err := s.handleHostIpUpdate(context.Background(), nil, HostIpUpdateInput{
+		HostIpCreateInput: HostIpCreateInput{
+			Name: "X", HostType: "IP", IpAddress: "9.9.9.9",
+			Confirm: true, DryRun: true,
+		},
+		ExpectedDiffHash: hash,
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(out), `"schema": "sophosfw.v1.preview"`)
+	require.Empty(t, fc.sent, "dry-run must not send the envelope")
+}
+
+func TestHostIpUpdate_Handler_Apply_Succeeds(t *testing.T) {
+	current := catalog.IPHost{Name: "X", IPFamily: "IPv4", HostType: "IP", IPAddress: "1.1.1.1"}
+	hash, _ := svc.DiffHash(current)
+	body := map[string][]json.RawMessage{
+		"IPHost": {json.RawMessage(`{"Name":"X","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`)},
+	}
+	s, fc := newMutMcpServer(t, body)
+	out, _, err := s.handleHostIpUpdate(context.Background(), nil, HostIpUpdateInput{
+		HostIpCreateInput: HostIpCreateInput{
+			Name: "X", HostType: "IP", IpAddress: "9.9.9.9",
+			Confirm: true, DryRun: false,
+		},
+		ExpectedDiffHash: hash,
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(out), `"schema": "sophosfw.v1.hostIpMutation"`)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestHostIpDelete_Handler_DryRun(t *testing.T) {
+	current := catalog.IPHost{Name: "X", IPFamily: "IPv4", HostType: "IP", IPAddress: "1.1.1.1"}
+	hash, _ := svc.DiffHash(current)
+	s, fc := newMutMcpServer(t, map[string][]json.RawMessage{
+		"IPHost": {json.RawMessage(`{"Name":"X","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`)},
+	})
+	out, _, err := s.handleHostIpDelete(context.Background(), nil, HostIpDeleteInput{
+		Name: "X", ExpectedDiffHash: hash,
+		Confirm: true, DryRun: true,
+	})
+	require.NoError(t, err)
+	require.Contains(t, textOf(out), `"schema": "sophosfw.v1.preview"`)
+	require.Empty(t, fc.sent, "dry-run must not send the envelope")
+}

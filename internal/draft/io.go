@@ -62,19 +62,19 @@ func ReadDraft(path string) (*Draft, error) {
 		if m == nil {
 			continue
 		}
-		key, val := m[1], strings.TrimSpace(m[2])
+		key, val := strings.ToLower(m[1]), strings.TrimSpace(m[2])
 		switch key {
 		case "profile":
 			d.Profile = val
 		case "rule":
 			d.Rule = val
-		case "pulledAt":
+		case "pulledat":
 			t, err := time.Parse(time.RFC3339, val)
 			if err != nil {
 				return nil, fmt.Errorf("draft header pulledAt invalid: %w", err)
 			}
 			d.PulledAt = t
-		case "diffHash":
+		case "diffhash":
 			if !hashRe.MatchString(val) {
 				return nil, fmt.Errorf("draft header diffHash invalid: must be 64-char lowercase hex, got %q", val)
 			}

@@ -60,14 +60,18 @@ func SnapshotPath(baseDir, profile, ruleName string, t time.Time) (string, error
 }
 
 // nameHash returns the first 6 hex chars of SHA-256(name).
+// 6 hex chars = 24 bits → ~50% collision probability around 4096
+// distinct rule names per profile. Acceptable for per-user local
+// stores; revisit if multi-tenant usage emerges.
 func nameHash(name string) string {
 	h := sha256.Sum256([]byte(name))
 	return hex.EncodeToString(h[:])[:6]
 }
 
-// readHeaderRule reads just the `# rule:` line from a draft file's
-// header. Returns "" if the file exists but has no parseable header.
-// Returns os.IsNotExist if the file is absent.
+// readHeaderRule reads just the `# rule:` line from a draft or snapshot
+// file's header. Both formats share the same header structure so this
+// helper works on either. Returns "" if the file exists but has no
+// parseable header. Returns os.IsNotExist if the file is absent.
 func readHeaderRule(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
