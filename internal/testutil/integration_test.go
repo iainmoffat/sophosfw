@@ -386,3 +386,43 @@ func TestIntegration_NATRuleMigration(t *testing.T) {
 	_, err := os.Stat(migrated)
 	require.NoError(t, err)
 }
+
+func TestIntegration_FirewallRuleNew_FromTemplate_DryRun(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	svcInst, _ := newFwRuleSvcForIntegration(t)
+	const tname = "sophosfw-integration-test-new"
+
+	out, err := svcInst.New(context.Background(), profileName, tname, "")
+	require.NoError(t, err)
+	require.FileExists(t, out.DraftPath)
+
+	pushOut, err := svcInst.Push(context.Background(), profileName, tname, false, true)
+	require.NoError(t, err)
+	require.True(t, pushOut.DryRun)
+	require.Equal(t, "create", pushOut.Operation)
+	require.NotNil(t, pushOut.Preview)
+	require.True(t, pushOut.Preview.Mutating)
+	require.Contains(t, pushOut.Preview.RedactedXML, `<Set operation="add">`)
+}
+
+func TestIntegration_NATRuleNew_FromTemplate_DryRun(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	svcInst, _ := newNATRuleSvcForIntegration(t)
+	const tname = "sophosfw-integration-test-nat-new"
+
+	out, err := svcInst.New(context.Background(), profileName, tname, "")
+	require.NoError(t, err)
+	require.FileExists(t, out.DraftPath)
+
+	pushOut, err := svcInst.Push(context.Background(), profileName, tname, false, true)
+	require.NoError(t, err)
+	require.True(t, pushOut.DryRun)
+	require.Equal(t, "create", pushOut.Operation)
+	require.NotNil(t, pushOut.Preview)
+	require.True(t, pushOut.Preview.Mutating)
+	require.Contains(t, pushOut.Preview.RedactedXML, `<Set operation="add">`)
+}
