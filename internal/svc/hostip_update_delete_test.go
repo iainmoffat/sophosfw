@@ -77,6 +77,23 @@ func TestHostIPSvc_Update_IgnoreHash_AppliesWithoutFetch(t *testing.T) {
 	require.Contains(t, string(body), `"expectedDiffHash":"ignored"`)
 }
 
+func TestHostIPSvc_Update_DiffHashMismatch_AuditsRejection(t *testing.T) {
+	current := json.RawMessage(`{"Name":"LAN-network","IPFamily":"IPv4","HostType":"Network","IPAddress":"10.0.0.0","Subnet":"255.255.255.0"}`)
+	s, _, auditDir := newCreateTestSvc(t, false, []json.RawMessage{current})
+	_, err := s.Update(context.Background(), "home", HostIPCreateInput{
+		Name: "LAN-network", HostType: "Network",
+		IPAddress: "10.0.0.0", Subnet: "255.255.252.0",
+	}, "definitely-wrong-hash-0000000000000000000000000000000000000000", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+
+	body, readErr := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, readErr)
+	require.Contains(t, string(body), `"operation":"update"`)
+	require.Contains(t, string(body), `"objectName":"LAN-network"`)
+	require.Contains(t, string(body), `"result":"error:diff_hash_mismatch"`)
+}
+
 func TestHostIPSvc_Delete_DiffHashRequired(t *testing.T) {
 	s, fc, _ := newCreateTestSvc(t, false, []json.RawMessage{
 		json.RawMessage(`{"Name":"X","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`),

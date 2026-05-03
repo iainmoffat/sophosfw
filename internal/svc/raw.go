@@ -118,11 +118,29 @@ func (s *RawSvc) Preview(ctx context.Context, profileName string, body []byte) (
 // Pre-flight: read-only-profile rejection. The cli is expected to enforce
 // the --confirm-mutating intent gate before calling this method when the
 // envelope contains mutating verbs.
-func (s *RawSvc) Apply(ctx context.Context, profileName string, body []byte) error {
-	profile, name, err := s.Config.ActiveProfile(profileName)
-	if err != nil {
-		return err
+func (s *RawSvc) Apply(ctx context.Context, profileName string, body []byte) (err error) {
+	profile, name, perr := s.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return perr
 	}
+
+	// Build the audit entry skeleton early so the read-only rejection is captured.
+	// Operation and RedactedXML are refined once we have the full envelope below.
+	entry := AuditEntry{
+		Profile:    name,
+		Operation:  "raw_apply", // may be updated to raw_apply_mutating below
+		ObjectType: "raw",
+	}
+
+	// Defer a write that fires on any error before an explicit Result is set.
+	defer func() {
+		if err != nil && s.Audit != nil && entry.Result == "" {
+			entry.Result = "error:" + ErrorKind(err)
+			entry.ErrorMessage = err.Error()
+			_ = s.Audit.Write(entry)
+		}
+	}()
+
 	if profile.ReadOnly {
 		return fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
 	}
@@ -135,20 +153,16 @@ func (s *RawSvc) Apply(ctx context.Context, profileName string, body []byte) err
 		return err
 	}
 
+	// Refine operation and RedactedXML now that we have the full envelope.
+	mutating, _ := safety.IsMutating(full)
+	if mutating {
+		entry.Operation = "raw_apply_mutating"
+	}
+	entry.RedactedXML = string(safety.RedactXML(full))
+
 	cl := s.NewClient(profile, c)
 	_, sendErr := cl.DoRaw(ctx, full)
 
-	mutating, _ := safety.IsMutating(full)
-	op := "raw_apply"
-	if mutating {
-		op = "raw_apply_mutating"
-	}
-	entry := AuditEntry{
-		Profile:     name,
-		Operation:   op,
-		ObjectType:  "raw",
-		RedactedXML: string(safety.RedactXML(full)),
-	}
 	if sendErr != nil {
 		entry.Result = "error:" + ErrorKind(sendErr)
 		entry.ErrorMessage = sendErr.Error()

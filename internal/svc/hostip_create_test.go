@@ -150,6 +150,21 @@ func TestHostIPSvc_Create_DryRun_AuditLogged(t *testing.T) {
 	require.Contains(t, string(body), `"operation":"create"`)
 }
 
+func TestHostIPSvc_Create_ReadOnlyProfile_AuditsRejection(t *testing.T) {
+	s, _, auditDir := newCreateTestSvc(t, true, nil)
+	_, err := s.Create(context.Background(), "home", HostIPCreateInput{
+		Name: "X", HostType: "IP", IPAddress: "1.1.1.1",
+	}, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrReadOnlyViolation))
+
+	body, readErr := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, readErr)
+	require.Contains(t, string(body), `"operation":"create"`)
+	require.Contains(t, string(body), `"objectName":"X"`)
+	require.Contains(t, string(body), `"result":"error:read_only_violation"`)
+}
+
 func TestHostIPSvc_Create_Apply_AuditLoggedOnFailure(t *testing.T) {
 	refetched := []json.RawMessage{json.RawMessage(`{"Name":"LAN-network","IPFamily":"IPv4","HostType":"Network","IPAddress":"10.0.0.0","Subnet":"255.255.255.0"}`)}
 	s, fc, auditDir := newCreateTestSvc(t, false, refetched)

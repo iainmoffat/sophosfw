@@ -416,6 +416,45 @@ func TestFirewallRuleSvc_Push_Apply_ArchivesNewSnapshot(t *testing.T) {
 	require.Len(t, postCount, 2, "Push apply must archive a new snapshot")
 }
 
+func TestFirewallRuleSvc_Push_DiffHashMismatch_AuditsRejection(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	// Mutate the live body so the hash no longer matches the draft's stored hash.
+	fc.body["Status"] = "Disable"
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+
+	logBody, readErr := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, readErr)
+	// Two entries: one from Pull (ok) and one from Push (error).
+	require.Contains(t, string(logBody), `"operation":"firewall_rule_push"`)
+	require.Contains(t, string(logBody), `"objectName":"X"`)
+	require.Contains(t, string(logBody), `"result":"error:diff_hash_mismatch"`)
+}
+
+func TestFirewallRuleSvc_Delete_DiffHashMismatch_AuditsRejection(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, body)
+	_, err := svc.Delete(context.Background(), "home", "X", "definitely-wrong-hash-0000000000000000000000000000000000000000", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+
+	logBody, readErr := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, readErr)
+	require.Contains(t, string(logBody), `"operation":"firewall_rule_delete"`)
+	require.Contains(t, string(logBody), `"objectName":"X"`)
+	require.Contains(t, string(logBody), `"result":"error:diff_hash_mismatch"`)
+}
+
 func TestFirewallRuleSvc_Delete_RequiresExpectedHash(t *testing.T) {
 	body := map[string]any{
 		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",

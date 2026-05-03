@@ -70,6 +70,19 @@ func TestRawSvc_Apply_RejectedOnReadOnlyProfile(t *testing.T) {
 	require.Empty(t, fc.sentEnvelopes)
 }
 
+func TestRawSvc_Apply_ReadOnlyProfile_AuditsRejection(t *testing.T) {
+	s, fc, auditDir := newRawApplyTestSvc(t, true, nil)
+	err := s.Apply(context.Background(), "home", []byte(`<Set operation="add"><IPHost><Name>X</Name></IPHost></Set>`))
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrReadOnlyViolation))
+	require.Empty(t, fc.sentEnvelopes)
+
+	logBody, readErr := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	require.NoError(t, readErr)
+	require.Contains(t, string(logBody), `"operation":"raw_apply"`)
+	require.Contains(t, string(logBody), `"result":"error:read_only_violation"`)
+}
+
 func TestRawSvc_Apply_AuditLoggedOnFailure(t *testing.T) {
 	s, _, auditDir := newRawApplyTestSvc(t, false, sophos.ErrServerError)
 	body := []byte(`<Set operation="add"><IPHost><Name>X</Name></IPHost></Set>`)

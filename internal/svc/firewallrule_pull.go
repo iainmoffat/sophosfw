@@ -372,11 +372,29 @@ var requiredFirewallRuleFields = []string{"Name", "Status", "IPFamily", "PolicyT
 // Push validates the draft, checks drift via diff hash, builds and sends a
 // <Set operation="update"><FirewallRule>...</FirewallRule></Set> envelope,
 // archives the new state, and audits.
-func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string, ignoreHash, dryRun bool) (*FirewallRulePushResult, error) {
-	profile, name, err := s.Inner.Config.ActiveProfile(profileName)
-	if err != nil {
-		return nil, err
+func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string, ignoreHash, dryRun bool) (out *FirewallRulePushResult, err error) {
+	profile, name, perr := s.Inner.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return nil, perr
 	}
+
+	// Build the audit entry skeleton early so every pre-flight rejection path
+	// is captured in the audit log.
+	entryAudit := AuditEntry{
+		Profile:    name,
+		Operation:  "firewall_rule_push",
+		ObjectType: "FirewallRule",
+		ObjectName: ruleName,
+	}
+
+	// Defer a write that fires on any error before an explicit Result is set.
+	defer func() {
+		if err != nil && s.Audit != nil && entryAudit.Result == "" {
+			entryAudit.Result = "error:" + ErrorKind(err)
+			entryAudit.ErrorMessage = err.Error()
+			_ = s.Audit.Write(entryAudit)
+		}
+	}()
 
 	// 1. Read draft.
 	draftPath, err := draft.DraftPath(s.BaseDir, name, ruleName)
@@ -386,6 +404,13 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	d, err := draft.ReadDraft(draftPath)
 	if err != nil {
 		return nil, err
+	}
+
+	// Populate ExpectedDiffHash now that we have the draft header.
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	} else {
+		entryAudit.ExpectedDiffHash = d.DiffHash
 	}
 
 	// 2. Header sanity.
@@ -408,8 +433,8 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	}
 
 	// 5. Catalog mutable check.
-	entry, ok := s.Inner.Catalog.Resolve("FirewallRule")
-	if !ok || !entry.Mutable {
+	catEntry, ok := s.Inner.Catalog.Resolve("FirewallRule")
+	if !ok || !catEntry.Mutable {
 		return nil, fmt.Errorf("%w: FirewallRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
 	}
 
@@ -442,20 +467,10 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
-	// 8. Audit entry skeleton.
-	entryAudit := AuditEntry{
-		Profile:          name,
-		Operation:        "firewall_rule_push",
-		ObjectType:       "FirewallRule",
-		ObjectName:       ruleName,
-		ExpectedDiffHash: d.DiffHash,
-		RedactedXML:      string(safety.RedactXML(full)),
-	}
-	if ignoreHash {
-		entryAudit.ExpectedDiffHash = "ignored"
-	}
+	// Populate RedactedXML now that we have the full envelope.
+	entryAudit.RedactedXML = string(safety.RedactXML(full))
 
-	// 9. Dry-run path.
+	// 8. Dry-run path.
 	if dryRun {
 		mutating, verbs := safety.IsMutating(full)
 		pv := &Preview{
@@ -476,7 +491,7 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 		}, nil
 	}
 
-	// 10. Apply path.
+	// 9. Apply path.
 	cl := s.Inner.NewClient(profile, c)
 	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
 		entryAudit.Result = "error:" + ErrorKind(sendErr)
@@ -487,7 +502,7 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	entryAudit.Result = "ok"
 	_ = s.Audit.Write(entryAudit)
 
-	// 11. Refetch, archive, update draft hash.
+	// 10. Refetch, archive, update draft hash.
 	refetched, _ := s.Get(ctx, profileName, ruleName)
 	newHash := ""
 	if refetched != nil {
@@ -637,11 +652,35 @@ func writeClose(buf *bytes.Buffer, key string) {
 
 // Delete removes a FirewallRule from the appliance, enforcing expectedHash
 // validation and archiving the -deleted snapshot on success.
-func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, expectedHash string, ignoreHash, dryRun bool) (*FirewallRulePushResult, error) {
-	profile, name, err := s.Inner.Config.ActiveProfile(profileName)
-	if err != nil {
-		return nil, err
+func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, expectedHash string, ignoreHash, dryRun bool) (out *FirewallRulePushResult, err error) {
+	profile, name, perr := s.Inner.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return nil, perr
 	}
+
+	// Build the audit entry skeleton early so every pre-flight rejection path
+	// is captured in the audit log.
+	entryAudit := AuditEntry{
+		Profile:    name,
+		Operation:  "firewall_rule_delete",
+		ObjectType: "FirewallRule",
+		ObjectName: ruleName,
+	}
+	if expectedHash != "" {
+		entryAudit.ExpectedDiffHash = expectedHash
+	}
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	}
+
+	// Defer a write that fires on any error before an explicit Result is set.
+	defer func() {
+		if err != nil && s.Audit != nil && entryAudit.Result == "" {
+			entryAudit.Result = "error:" + ErrorKind(err)
+			entryAudit.ErrorMessage = err.Error()
+			_ = s.Audit.Write(entryAudit)
+		}
+	}()
 
 	// 1. CLI-side enforcement (defense in depth).
 	if expectedHash == "" && !ignoreHash {
@@ -654,8 +693,8 @@ func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, exp
 	}
 
 	// 3. Catalog Mutable check.
-	entry, ok := s.Inner.Catalog.Resolve("FirewallRule")
-	if !ok || !entry.Mutable {
+	catEntry, ok := s.Inner.Catalog.Resolve("FirewallRule")
+	if !ok || !catEntry.Mutable {
 		return nil, fmt.Errorf("%w: FirewallRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
 	}
 
@@ -693,20 +732,10 @@ func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, exp
 		return nil, err
 	}
 
-	// 6. Audit entry skeleton.
-	entryAudit := AuditEntry{
-		Profile:          name,
-		Operation:        "firewall_rule_delete",
-		ObjectType:       "FirewallRule",
-		ObjectName:       ruleName,
-		ExpectedDiffHash: expectedHash,
-		RedactedXML:      string(safety.RedactXML(full)),
-	}
-	if ignoreHash {
-		entryAudit.ExpectedDiffHash = "ignored"
-	}
+	// Populate RedactedXML now that we have the full envelope.
+	entryAudit.RedactedXML = string(safety.RedactXML(full))
 
-	// 7. Dry-run.
+	// 6. Dry-run.
 	if dryRun {
 		mutating, verbs := safety.IsMutating(full)
 		pv := &Preview{
@@ -727,7 +756,7 @@ func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, exp
 		}, nil
 	}
 
-	// 8. Apply.
+	// 7. Apply.
 	cl := s.Inner.NewClient(profile, c)
 	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
 		entryAudit.Result = "error:" + ErrorKind(sendErr)
@@ -738,7 +767,7 @@ func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, exp
 	entryAudit.Result = "ok"
 	_ = s.Audit.Write(entryAudit)
 
-	// 9. Archive last-known state with -deleted suffix.
+	// 8. Archive last-known state with -deleted suffix.
 	now := s.now()
 	regularPath, _ := draft.SnapshotPath(s.BaseDir, name, ruleName, now)
 	deletedPath := strings.TrimSuffix(regularPath, ".yaml") + "-deleted.yaml"

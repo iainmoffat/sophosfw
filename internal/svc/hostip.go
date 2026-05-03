@@ -303,23 +303,49 @@ func (s *HostIPSvc) mutate(
 	expectedHash string,
 	ignoreHash bool,
 	dryRun bool,
-) (*HostIPMutationResult, error) {
-	// 1. Resolve profile + read-only pre-flight check.
-	profile, profName, err := s.Inner.Config.ActiveProfile(profileName)
-	if err != nil {
-		return nil, err
+) (out *HostIPMutationResult, err error) {
+	// 1. Resolve profile — if this fails we have no Profile name to record.
+	profile, profName, perr := s.Inner.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return nil, perr
 	}
+
+	// Build the audit entry skeleton early so every pre-flight rejection path
+	// can be captured in the audit log.
+	auditEntry := AuditEntry{
+		Profile:    profName,
+		Operation:  operation,
+		ObjectType: "IPHost",
+		ObjectName: name,
+	}
+	if expectedHash != "" {
+		auditEntry.ExpectedDiffHash = expectedHash
+	}
+	if ignoreHash {
+		auditEntry.ExpectedDiffHash = "ignored"
+	}
+
+	// Defer a write that fires on any error before an explicit Result is set.
+	defer func() {
+		if err != nil && s.Audit != nil && auditEntry.Result == "" {
+			auditEntry.Result = "error:" + ErrorKind(err)
+			auditEntry.ErrorMessage = err.Error()
+			_ = s.Audit.Write(auditEntry)
+		}
+	}()
+
+	// 2. Read-only pre-flight check.
 	if profile.ReadOnly {
 		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, profName)
 	}
 
-	// 2. Catalog mutable check.
-	entry, ok := s.Inner.Catalog.Resolve("IPHost")
-	if !ok || !entry.Mutable {
+	// 3. Catalog mutable check.
+	catEntry, ok := s.Inner.Catalog.Resolve("IPHost")
+	if !ok || !catEntry.Mutable {
 		return nil, fmt.Errorf("%w: IPHost is not marked mutable in the catalog", ErrUnsupportedInPhase)
 	}
 
-	// 3. For create/update, validate the input.
+	// 4. For create/update, validate the input.
 	if operation != "delete" {
 		if err := validateHostIPCreate(input); err != nil {
 			return nil, err
@@ -328,7 +354,7 @@ func (s *HostIPSvc) mutate(
 		return nil, fmt.Errorf("%w: --name is required for delete", sophos.ErrInvalidRequest)
 	}
 
-	// 4. For update/delete, fetch and check diff hash.
+	// 5. For update/delete, fetch and check diff hash.
 	if operation == "update" || operation == "delete" {
 		if expectedHash == "" && !ignoreHash {
 			return nil, fmt.Errorf("%w: expectedDiffHash is required for %s (or pass --ignore-diff-hash)", sophos.ErrInvalidRequest, operation)
@@ -348,7 +374,7 @@ func (s *HostIPSvc) mutate(
 		}
 	}
 
-	// 5. Build the envelope.
+	// 6. Build the envelope.
 	c, credsErr := s.Inner.Creds.Load(profName)
 	if credsErr != nil {
 		return nil, credsErr
@@ -375,22 +401,10 @@ func (s *HostIPSvc) mutate(
 		return nil, envelopeErr
 	}
 
-	// 6. Compute audit-log fields used by both branches.
-	auditEntry := AuditEntry{
-		Profile:     profName,
-		Operation:   operation,
-		ObjectType:  "IPHost",
-		ObjectName:  name,
-		RedactedXML: string(safetyRedact(full)),
-	}
-	if expectedHash != "" {
-		auditEntry.ExpectedDiffHash = expectedHash
-	}
-	if ignoreHash {
-		auditEntry.ExpectedDiffHash = "ignored"
-	}
+	// 7. Populate RedactedXML now that we have the full envelope.
+	auditEntry.RedactedXML = string(safetyRedact(full))
 
-	// 7. Dry-run path.
+	// 8. Dry-run path.
 	if dryRun {
 		mutating, verbs := safetyIsMutating(full)
 		pv := &Preview{
@@ -408,7 +422,7 @@ func (s *HostIPSvc) mutate(
 		}, nil
 	}
 
-	// 8. Apply path: send the envelope.
+	// 9. Apply path: send the envelope.
 	cl := s.Inner.NewClient(profile, c)
 	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
 		auditEntry.Result = "error:" + ErrorKind(sendErr)
@@ -419,7 +433,7 @@ func (s *HostIPSvc) mutate(
 	auditEntry.Result = "ok"
 	_ = s.Audit.Write(auditEntry)
 
-	// 9. For create/update, re-fetch to return the post-write state.
+	// 10. For create/update, re-fetch to return the post-write state.
 	if operation == "delete" {
 		return &HostIPMutationResult{
 			Profile: profName, Operation: operation, Name: name, DryRun: false,
