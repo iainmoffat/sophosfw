@@ -17,7 +17,7 @@ including ones not listed above).
 | Network | Zone | object list/get Zone (typed Phase 3) | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | Phase 3 |
 | Network | Interface | object list/get Interface | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | partial |
 | Network | Gateway | object list/get Gateway | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | partial |
-| Firewall | FirewallRule | object list/get FirewallRule; firewall rule list/show | firewall_rule_list/show; object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | n/a | Phase 3 |
+| Firewall | FirewallRule | object list/get FirewallRule; firewall rule list/show/pull/diff/push/delete | firewall_rule_list/show; object_list/get/search/usage | yes | Phase 8 | yes (sophosfw firewall rule push) | yes (sophosfw firewall rule delete) | n/a | Phase 7 |
 | Firewall | NATRule | object list/get NATRule; nat rule list/show | nat_rule_list/show; object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | n/a | Phase 3 |
 
 Source references: Sophos 22.0 API docs, Sophos Postman collection, Sophos Python SDK behavior.

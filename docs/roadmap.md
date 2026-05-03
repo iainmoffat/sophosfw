@@ -8,7 +8,8 @@
 - Phase 4 — MCP read-only server (complete; v0.3.0-phase4)
 - Phase 5 — Agent skill completion (complete; v0.4.0-phase5)
 - Phase 6 — Safe mutations (complete; v0.5.0-phase6)
-- Phase 7 — Complex draft workflows (firewall rule pull/edit/diff/preview/push)
+- Phase 7 — FirewallRule draft workflow (complete; v0.6.0-phase7)
+- Phase 8 — MCP tools for firewall rules + rule create workflow + extension to NATRule
 
 ## Phase 3 — First-class read-only commands
 **Goal:** ergonomic wrappers over the catalog for high-traffic objects.
