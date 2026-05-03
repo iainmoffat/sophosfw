@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -185,4 +186,55 @@ func TestExtractNATReferences_FiltersSentinels(t *testing.T) {
 	}
 	refs := extractNATReferences(body)
 	require.Empty(t, refs)
+}
+
+func TestNATRuleSvc_Diff_NoChanges(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	out, err := svc.Diff(context.Background(), "home", "X")
+	require.NoError(t, err)
+	require.False(t, out.HasChanges)
+	require.Empty(t, out.UnifiedDiff)
+}
+
+func TestNATRuleSvc_Diff_DetectsFieldChange(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = bytes.ReplaceAll(d.Body, []byte("Status: Enable"), []byte("Status: Disable"))
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	out, err := svc.Diff(context.Background(), "home", "X")
+	require.NoError(t, err)
+	require.True(t, out.HasChanges)
+	require.Contains(t, out.UnifiedDiff, "-Status: Enable")
+	require.Contains(t, out.UnifiedDiff, "+Status: Disable")
+}
+
+func TestNATRuleSvc_Diff_MissingSnapshot(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, baseDir := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots", "nat")
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		require.NoError(t, os.Remove(filepath.Join(dir, e.Name())))
+	}
+	_, err = svc.Diff(context.Background(), "home", "X")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, draft.ErrSnapshotMissing))
 }

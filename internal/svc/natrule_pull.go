@@ -101,6 +101,69 @@ func (s *NATRuleSvc) now() time.Time {
 	return time.Now().UTC()
 }
 
+// NATRuleDiffResult is what Diff returns.
+type NATRuleDiffResult struct {
+	Profile        string
+	Rule           string
+	HasChanges     bool
+	UnifiedDiff    string
+	StructuredDiff []DiffEntry
+}
+
+// Diff reads the draft for ruleName, finds the snapshot whose diffHash
+// matches the draft's header diffHash, and returns the unified-text +
+// structured diff. Local only — no firewall round-trip.
+func (s *NATRuleSvc) Diff(ctx context.Context, profileName, ruleName string) (*NATRuleDiffResult, error) {
+	_, name, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+
+	draftPath, err := draft.DraftPath(s.BaseDir, name, "nat", ruleName)
+	if err != nil {
+		return nil, err
+	}
+	d, err := draft.ReadDraft(draftPath)
+	if err != nil {
+		return nil, err
+	}
+
+	snaps, err := draft.ListSnapshots(s.BaseDir, name, "nat", ruleName)
+	if err != nil {
+		return nil, err
+	}
+	var snapBody []byte
+	for _, p := range snaps {
+		sd, err := draft.ReadDraft(p)
+		if err != nil {
+			continue
+		}
+		if sd.DiffHash == d.DiffHash {
+			snapBody = sd.Body
+			break
+		}
+	}
+	if snapBody == nil {
+		return nil, fmt.Errorf("for draft %s: %w", draftPath, draft.ErrSnapshotMissing)
+	}
+
+	out := &NATRuleDiffResult{
+		Profile:        name,
+		Rule:           ruleName,
+		StructuredDiff: []DiffEntry{},
+	}
+	out.UnifiedDiff = draft.UnifiedDiff(snapBody, d.Body, "snapshot", "draft")
+	out.HasChanges = out.UnifiedDiff != ""
+	if out.HasChanges {
+		entries, err := structuredDiff(snapBody, d.Body)
+		if err != nil {
+			return nil, err
+		}
+		out.StructuredDiff = entries
+	}
+	return out, nil
+}
+
 // extractNATReferences walks a NATRule body for known reference-bearing
 // fields and returns a deduplicated summary. Sentinel values "Original"
 // (translation no-op) and "None" (no link) are filtered.
