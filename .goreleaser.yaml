@@ -1,0 +1,41 @@
+version: 2
+
+builds:
+  - main: ./cmd/sophosfw
+    binary: sophosfw
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "sophosfw_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+brews:
+  - repository:
+      owner: iainmoffat
+      name: homebrew-sophosfw
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/iainmoffat/sophosfw
+    description: CLI and MCP server for the Sophos Firewall API
+    install: |
+      bin.install "sophosfw"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
