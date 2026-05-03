@@ -368,3 +368,50 @@ func TestFirewallRuleSvc_Push_Failure_AuditLogged(t *testing.T) {
 	require.Contains(t, string(logBody), `"operation":"firewall_rule_push"`)
 	require.Contains(t, string(logBody), `"result":"error:server_error"`)
 }
+
+func TestFirewallRuleSvc_Push_RejectsMaliciousKeyInBody(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	// Inject a malicious key into the draft body.
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	// Append a key with spaces (illegal in XML element names).
+	d.Body = append(d.Body, []byte("\"name with spaces\": x\n")...)
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Empty(t, fc.sent, "must not send envelope when XML tag is invalid")
+}
+
+func TestFirewallRuleSvc_Push_Apply_ArchivesNewSnapshot(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, baseDir := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	preCount, err := draft.ListSnapshots(baseDir, "home", "X")
+	require.NoError(t, err)
+	require.Len(t, preCount, 1, "Pull writes 1 snapshot")
+
+	// Apply (no actual data change, but the apply flow should still archive
+	// after refetch). Use injected Now so the new snapshot has a different
+	// timestamp.
+	svc.Now = func() time.Time {
+		// Different time than the pull snapshot.
+		return time.Date(2026, 5, 2, 16, 0, 0, 0, time.UTC)
+	}
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+
+	postCount, err := draft.ListSnapshots(baseDir, "home", "X")
+	require.NoError(t, err)
+	require.Len(t, postCount, 2, "Push apply must archive a new snapshot")
+}

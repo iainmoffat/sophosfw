@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"sort"
 	"time"
 
@@ -544,6 +545,17 @@ func parseAndValidateRuleBody(body []byte) (map[string]any, error) {
 	return m, nil
 }
 
+// validXMLName is the allowlist regex for legal XML element names per the spec.
+var validXMLName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*$`)
+
+// validateXMLName checks if a string is a valid XML element name.
+func validateXMLName(name string) error {
+	if !validXMLName.MatchString(name) {
+		return fmt.Errorf("%w: invalid XML element name %q", sophos.ErrInvalidRequest, name)
+	}
+	return nil
+}
+
 // marshalFirewallRule converts the parsed rule body to XML wrapped in
 // <FirewallRule>...</FirewallRule>.
 func marshalFirewallRule(rule map[string]any) ([]byte, error) {
@@ -571,6 +583,9 @@ func writeMapChildren(buf *bytes.Buffer, m map[string]any) error {
 }
 
 func writeKeyValue(buf *bytes.Buffer, key string, val any) error {
+	if err := validateXMLName(key); err != nil {
+		return err
+	}
 	switch v := val.(type) {
 	case nil:
 		return nil
