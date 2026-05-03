@@ -16,7 +16,7 @@ Phase 7 introduces a CLI workflow built around YAML draft files and immutable sn
 - On-disk draft + snapshot store under `~/.config/sophosfw/profiles/<profile>/{drafts,snapshots}/`.
 - Draft format: round-trip 1:1 with `catalog.FirewallRule` plus a header comment block carrying metadata (profile, rule, pulledAt, diffHash).
 - Snapshot retention (default 10 per rule, configurable).
-- Structural schema validation on push (strict YAML unmarshal into the typed struct).
+- Required-field validation on push (parsed body must have non-empty `Name`, `Status`, `IPFamily`, `PolicyType`). Field-level validation deferred to the firewall.
 - Catalog change: flag `FirewallRule` as `Mutable: true`.
 - Three new render envelopes: `sophosfw.v1.firewallRulePull`, `sophosfw.v1.firewallRuleDiff`, `sophosfw.v1.firewallRulePush`.
 - Two new error sentinels: `ErrDraftMissing`, `ErrSnapshotMissing`.
@@ -139,7 +139,7 @@ Description: ""
 - Lines from start-of-file to the first line that is exactly `---` are the header. Each header line must match `^# (\w+): (.*)$` or be the literal `# DO NOT EDIT ABOVE THIS LINE — push reads this header to verify drift` line. Other comment shapes are ignored.
 - Required header keys: `profile`, `rule`, `pulledAt`, `diffHash`. Missing → `kind: invalid_request`.
 - `pulledAt` parses as RFC 3339; `diffHash` matches `^[a-f0-9]{64}$`.
-- The body is everything after the first `---`. Parsed via `yaml.Unmarshal` with `KnownFields(true)` (strict) into `catalog.FirewallRule`.
+- The body is everything after the first `---`. Parsed via `yaml.Unmarshal` into `map[string]any`. Sophos `FirewallRule` shape varies by `PolicyType` (Network, User, HTTPBased, etc.) and includes single-or-list union fields (`SourceNetworks` may carry one or many `Network` children); a typed Go struct is deferred to a future phase. Required-field validation: the parsed body must contain non-empty `Name`, `Status`, `IPFamily`, and `PolicyType` keys at the top level. Field-by-field validation is the firewall's job.
 - Header `rule:` must equal the positional `<name>` argument supplied to `push`/`diff`/`delete`. Mismatch → `kind: invalid_request`.
 - Header `profile:` must equal the resolved active profile. Mismatch → `kind: invalid_request`.
 
@@ -219,7 +219,7 @@ type FirewallRulePushResult struct {
     DryRun      bool
     Preview     *Preview                // dry-run only
     NewDiffHash string                  // apply only
-    Item        *catalog.FirewallRule   // apply only
+    Item        map[string]any          // apply only — the refetched rule body
 }
 
 func (s *FirewallRuleSvc) Pull(ctx context.Context, profileName, ruleName string) (*FirewallRulePullResult, error)
@@ -260,9 +260,9 @@ Schema names: `sophosfw.v1.firewallRulePull`, `sophosfw.v1.firewallRuleDiff`, `s
 
 1. Resolve active profile.
 2. (No read-only check — pull is non-mutating.)
-3. `Inner.Get(profile, "FirewallRule", ruleName)` → `*catalog.FirewallRule`. Not found → `kind: not_found`.
-4. Compute `DiffHash(rule)`.
-5. Marshal rule to canonical YAML. Field ordering must be deterministic (yaml.Marshal of the struct yields struct-field order).
+3. `Inner.Get(profile, "FirewallRule", ruleName)` → `map[string]any` (the existing `FirewallRuleSvc.Get` already returns this shape). Not found → `kind: not_found`.
+4. Compute `DiffHash(rule)` (canonical-JSON SHA-256 over the map; same `DiffHash` helper as Phase 6).
+5. Marshal rule to canonical YAML. Field ordering must be deterministic — sort top-level keys alphabetically before marshaling so two calls on the same data produce byte-identical YAML.
 6. `draft.DraftPath` and `draft.SnapshotPath`. Create parent dirs `0700` if missing.
 7. Write the snapshot first (immutable record of what was on the firewall at this moment).
 8. Write the draft second (overwrites any prior draft).
@@ -285,7 +285,7 @@ Schema names: `sophosfw.v1.firewallRulePull`, `sophosfw.v1.firewallRuleDiff`, `s
 
 1. Read the draft.
 2. Sanity: header `rule:` ≠ positional name → `kind: invalid_request`. Header `profile:` ≠ active profile → `kind: invalid_request`.
-3. Validate body: `yaml.Unmarshal` with strict mode into `catalog.FirewallRule`. Failure → `kind: invalid_request`.
+3. Validate body: `yaml.Unmarshal` into `map[string]any` (parse failure → `kind: invalid_request`); then check that `Name`, `Status`, `IPFamily`, and `PolicyType` are present and non-empty (missing → `kind: invalid_request` with the missing field name in the message).
 4. Active profile is read-only → `kind: read_only`.
 5. Catalog entry's `Mutable: false` → `kind: immutable`.
 6. `Inner.Get(profile, "FirewallRule", ruleName)` → live state. Not found → `kind: not_found`.
@@ -317,7 +317,7 @@ Mirrors Phase 6 `HostIPSvc.Delete`:
 | Draft file missing | `ErrDraftMissing` (new) | `not_found` | 4 |
 | Draft header malformed | `ErrInvalidRequest` | `invalid_request` | 6 |
 | Header `rule:`/`profile:` mismatch with cli args | `ErrInvalidRequest` | `invalid_request` | 6 |
-| YAML body fails strict unmarshal | `ErrInvalidRequest` | `invalid_request` | 6 |
+| YAML body fails to parse, or required field (`Name`/`Status`/`IPFamily`/`PolicyType`) missing | `ErrInvalidRequest` | `invalid_request` | 6 |
 | No matching snapshot for diff | `ErrSnapshotMissing` (new) | `not_found` | 4 |
 | Read-only profile | `ErrReadOnlyViolation` | `read_only` | 5 |
 | Catalog `Mutable: false` | `ErrImmutable` | `immutable` | 5 |
@@ -365,7 +365,7 @@ Existing `defaults.auditLog: false` config knob continues to suppress all audit 
   - `Push_DiffHashMismatch_Rejects` (kind=diff_hash_mismatch; no envelope sent).
   - `Push_DiffHashMismatch_IgnoreFlag_Applies` (envelope sent despite mismatch).
   - `Push_HeaderRuleMismatch_Rejects` (kind=invalid_request).
-  - `Push_StrictUnmarshal_RejectsExtraKeys` (extra YAML key in body → kind=invalid_request).
+  - `Push_RequiredFieldMissing_Rejects` (body missing `PolicyType` → kind=invalid_request).
   - `Push_ReadOnlyProfile_Rejects` (envelope not built).
   - `Push_Failure_AuditLogged` (audit entry result starts with "error:").
   - `Delete_RequiresExpectedHash` (cli-side gate).
