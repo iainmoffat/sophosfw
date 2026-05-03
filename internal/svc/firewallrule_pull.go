@@ -218,3 +218,132 @@ func sortedKeys(m map[string]struct{}) []string {
 	sort.Strings(out)
 	return out
 }
+
+// FirewallRuleDiffResult is what Diff returns.
+type FirewallRuleDiffResult struct {
+	Profile        string
+	Rule           string
+	HasChanges     bool
+	UnifiedDiff    string
+	StructuredDiff []DiffEntry
+}
+
+// DiffEntry is a single key-level change between snapshot and draft.
+type DiffEntry struct {
+	Path     string `json:"path"`
+	Op       string `json:"op"` // added | removed | changed
+	OldValue any    `json:"oldValue,omitempty"`
+	NewValue any    `json:"newValue,omitempty"`
+}
+
+// Diff reads the draft for ruleName, finds the snapshot whose
+// diffHash matches the draft's header diffHash, and returns the
+// unified-text + structured diff. Local only — no firewall round-trip.
+func (s *FirewallRuleSvc) Diff(ctx context.Context, profileName, ruleName string) (*FirewallRuleDiffResult, error) {
+	_, name, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+
+	draftPath, err := draft.DraftPath(s.BaseDir, name, ruleName)
+	if err != nil {
+		return nil, err
+	}
+	d, err := draft.ReadDraft(draftPath)
+	if err != nil {
+		return nil, err
+	}
+
+	snaps, err := draft.ListSnapshots(s.BaseDir, name, ruleName)
+	if err != nil {
+		return nil, err
+	}
+	var snapBody []byte
+	for _, p := range snaps {
+		sd, err := draft.ReadDraft(p)
+		if err != nil {
+			continue
+		}
+		if sd.DiffHash == d.DiffHash {
+			snapBody = sd.Body
+			break
+		}
+	}
+	if snapBody == nil {
+		return nil, fmt.Errorf("for draft %s: %w", draftPath, draft.ErrSnapshotMissing)
+	}
+
+	out := &FirewallRuleDiffResult{
+		Profile: name,
+		Rule:    ruleName,
+	}
+	out.UnifiedDiff = draft.UnifiedDiff(snapBody, d.Body, "snapshot", "draft")
+	out.HasChanges = out.UnifiedDiff != ""
+	if out.HasChanges {
+		entries, err := structuredDiff(snapBody, d.Body)
+		if err != nil {
+			return nil, err
+		}
+		out.StructuredDiff = entries
+	}
+	return out, nil
+}
+
+// structuredDiff parses both YAML bodies and walks the resulting maps
+// key-by-key, producing DiffEntry records.
+func structuredDiff(a, b []byte) ([]DiffEntry, error) {
+	var av, bv map[string]any
+	if err := yaml.Unmarshal(a, &av); err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal(b, &bv); err != nil {
+		return nil, err
+	}
+	var out []DiffEntry
+	walkMaps("", av, bv, &out)
+	return out, nil
+}
+
+func walkMaps(prefix string, a, b map[string]any, out *[]DiffEntry) {
+	keys := unionKeys(a, b)
+	for _, k := range keys {
+		path := k
+		if prefix != "" {
+			path = prefix + "." + k
+		}
+		av, aok := a[k]
+		bv, bok := b[k]
+		switch {
+		case !aok:
+			*out = append(*out, DiffEntry{Path: path, Op: "added", NewValue: bv})
+		case !bok:
+			*out = append(*out, DiffEntry{Path: path, Op: "removed", OldValue: av})
+		default:
+			am, amok := av.(map[string]any)
+			bm, bmok := bv.(map[string]any)
+			if amok && bmok {
+				walkMaps(path, am, bm, out)
+				continue
+			}
+			if fmt.Sprintf("%v", av) != fmt.Sprintf("%v", bv) {
+				*out = append(*out, DiffEntry{Path: path, Op: "changed", OldValue: av, NewValue: bv})
+			}
+		}
+	}
+}
+
+func unionKeys(a, b map[string]any) []string {
+	seen := map[string]struct{}{}
+	for k := range a {
+		seen[k] = struct{}{}
+	}
+	for k := range b {
+		seen[k] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

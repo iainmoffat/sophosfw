@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -162,4 +163,67 @@ func TestFirewallRuleSvc_Pull_AuditLogged(t *testing.T) {
 	require.Contains(t, string(logBody), `"operation":"firewall_rule_pull"`)
 	require.Contains(t, string(logBody), `"objectType":"FirewallRule"`)
 	require.Contains(t, string(logBody), `"objectName":"X"`)
+}
+
+func TestFirewallRuleSvc_Diff_NoChanges(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	out, err := svc.Diff(context.Background(), "home", "X")
+	require.NoError(t, err)
+	require.False(t, out.HasChanges)
+	require.Empty(t, out.UnifiedDiff)
+	require.Empty(t, out.StructuredDiff)
+}
+
+func TestFirewallRuleSvc_Diff_DetectsFieldChange(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = bytes.ReplaceAll(d.Body, []byte("Status: Enable"), []byte("Status: Disable"))
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	out, err := svc.Diff(context.Background(), "home", "X")
+	require.NoError(t, err)
+	require.True(t, out.HasChanges)
+	require.Contains(t, out.UnifiedDiff, "-Status: Enable")
+	require.Contains(t, out.UnifiedDiff, "+Status: Disable")
+
+	var found bool
+	for _, e := range out.StructuredDiff {
+		if e.Path == "Status" {
+			found = true
+			require.Equal(t, "changed", e.Op)
+			require.Equal(t, "Enable", e.OldValue)
+			require.Equal(t, "Disable", e.NewValue)
+		}
+	}
+	require.True(t, found, "Status change must appear in structured diff")
+}
+
+func TestFirewallRuleSvc_Diff_MissingSnapshot(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, baseDir := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots")
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		require.NoError(t, os.Remove(filepath.Join(dir, e.Name())))
+	}
+	_, err = svc.Diff(context.Background(), "home", "X")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, draft.ErrSnapshotMissing))
 }
