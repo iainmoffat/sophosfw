@@ -11,7 +11,7 @@
 - Phase 7 — FirewallRule draft workflow (complete; v0.6.0-phase7)
 - Phase 8 — NATRule draft workflow (complete; v0.7.0-phase8)
 - Phase 9 — Firewall + NAT rule create workflows (complete; v0.8.0-phase9)
-- Phase 10 — MCP-native firewall and NAT rule mutating tools
+- Phase 10 — MCP-native firewall and NAT rule mutating tools (complete; v0.9.0-phase10)
 
 ## Phase 3 — First-class read-only commands
 **Goal:** ergonomic wrappers over the catalog for high-traffic objects.

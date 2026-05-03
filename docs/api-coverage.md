@@ -17,7 +17,7 @@ including ones not listed above).
 | Network | Zone | object list/get Zone (typed Phase 3) | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | Phase 3 |
 | Network | Interface | object list/get Interface | object_list/get/search/usage | yes | Phase 6 | Phase 6 | Phase 6 | yes | partial |
 | Network | GatewayConfiguration | object list/get GatewayConfiguration (alias: gateway) | object_list/get/search/usage | yes | Phase 8 | Phase 8 | Phase 8 | yes | partial |
-| Firewall | FirewallRule | object list/get FirewallRule; firewall rule list/show/new/pull/diff/push/delete | firewall_rule_list/show; object_list/get/search/usage | yes | yes (sophosfw firewall rule new) | yes (sophosfw firewall rule push) | yes (sophosfw firewall rule delete) | n/a | Phase 9 |
-| Firewall | NATRule | object list/get NATRule; nat rule list/show/new/pull/diff/push/delete | nat_rule_list/show; object_list/get/search/usage | yes | yes (sophosfw nat rule new) | yes (sophosfw nat rule push) | yes (sophosfw nat rule delete) | n/a | Phase 9 |
+| Firewall | FirewallRule | object list/get FirewallRule; firewall rule list/show/new/pull/diff/push/delete | firewall_rule_list/show/create/update/delete; object_list/get/search/usage | yes | yes (sophosfw firewall rule new; firewall_rule_create) | yes (sophosfw firewall rule push; firewall_rule_update) | yes (sophosfw firewall rule delete; firewall_rule_delete) | n/a | Phase 10 |
+| Firewall | NATRule | object list/get NATRule; nat rule list/show/new/pull/diff/push/delete | nat_rule_list/show/create/update/delete; object_list/get/search/usage | yes | yes (sophosfw nat rule new; nat_rule_create) | yes (sophosfw nat rule push; nat_rule_update) | yes (sophosfw nat rule delete; nat_rule_delete) | n/a | Phase 10 |
 
 Source references: Sophos 22.0 API docs, Sophos Postman collection, Sophos Python SDK behavior.
