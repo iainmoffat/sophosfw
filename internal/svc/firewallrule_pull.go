@@ -358,7 +358,7 @@ func unionKeys(a, b map[string]any) []string {
 type FirewallRulePushResult struct {
 	Profile     string
 	Rule        string
-	Operation   string         // "update"
+	Operation   string // "update"
 	DryRun      bool
 	Preview     *Preview       // dry-run only
 	NewDiffHash string         // apply only
