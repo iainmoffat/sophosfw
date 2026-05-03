@@ -147,3 +147,34 @@ func newFirewallRuleDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	c.Flags().BoolVar(&yes, "yes", false, "apply the deletion (default is --dry-run)")
 	return c
 }
+
+func newFirewallRuleNewCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
+	var fromRule string
+	c := &cobra.Command{
+		Use:   "new <name>",
+		Short: "Create a new firewall rule draft (template or --from existing)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profile, _ := cmd.Flags().GetString("profile")
+			result, err := firewallRuleSvc(d, cat).New(cmd.Context(), profile, args[0], fromRule)
+			if err != nil {
+				return err
+			}
+			jsonMode, _ := cmd.Flags().GetBool("json")
+			if jsonMode {
+				b, err := render.FirewallRulePullEnvelope(result)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"Draft written: %s\nOperation:     create\nSnapshot:      (none — first push will create one)\nEdit and run: sophosfw firewall rule push %s --yes\n",
+				result.DraftPath, args[0])
+			return nil
+		},
+	}
+	c.Flags().StringVar(&fromRule, "from", "", "clone an existing rule's body as the starting template")
+	return c
+}

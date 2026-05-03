@@ -145,3 +145,49 @@ func TestFwRule_Delete_RequiresExpectedDiffHash(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "expected-diff-hash") || strings.Contains(err.Error(), "expectedDiffHash"))
 }
+
+func TestFwRule_New_WritesDraft_Json(t *testing.T) {
+	d, _ := newRootForFwRuleMutTest(t, nil)
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(out)
+	root.SetArgs([]string{"firewall", "rule", "new", "MyRule", "--json"})
+	require.NoError(t, root.Execute())
+	require.Contains(t, out.String(), `"schema": "sophosfw.v1.firewallRulePull"`)
+	require.Contains(t, out.String(), `"rule": "MyRule"`)
+	require.Contains(t, out.String(), `"diffHash": ""`)
+}
+
+func TestFwRule_New_FromExisting_CopiesBody(t *testing.T) {
+	body := map[string]any{
+		"Name": "OldRule", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	d, _ := newRootForFwRuleMutTest(t, body)
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(out)
+	root.SetArgs([]string{"firewall", "rule", "new", "NewRule", "--from", "OldRule", "--json"})
+	require.NoError(t, root.Execute())
+	require.Contains(t, out.String(), `"rule": "NewRule"`)
+}
+
+func TestFwRule_New_RejectsExistingDraft(t *testing.T) {
+	d, _ := newRootForFwRuleMutTest(t, nil)
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(out)
+	root.SetArgs([]string{"firewall", "rule", "new", "MyRule"})
+	require.NoError(t, root.Execute())
+
+	out.Reset()
+	root2 := NewRoot(*d)
+	root2.SetOut(out)
+	root2.SetErr(out)
+	root2.SetArgs([]string{"firewall", "rule", "new", "MyRule"})
+	err := root2.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already exists")
+}

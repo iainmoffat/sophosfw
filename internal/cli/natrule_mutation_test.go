@@ -146,3 +146,49 @@ func TestNATRule_Delete_RequiresExpectedDiffHash(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "expected-diff-hash") || strings.Contains(err.Error(), "expectedDiffHash"))
 }
+
+func TestNATRule_New_WritesDraft_Json(t *testing.T) {
+	d, _ := newRootForNATMutTest(t, nil)
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(out)
+	root.SetArgs([]string{"nat", "rule", "new", "MyNAT", "--json"})
+	require.NoError(t, root.Execute())
+	require.Contains(t, out.String(), `"schema": "sophosfw.v1.natRulePull"`)
+	require.Contains(t, out.String(), `"rule": "MyNAT"`)
+	require.Contains(t, out.String(), `"diffHash": ""`)
+}
+
+func TestNATRule_New_FromExisting_CopiesBody(t *testing.T) {
+	body := map[string]any{
+		"Name": "OldNAT", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	d, _ := newRootForNATMutTest(t, body)
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(out)
+	root.SetArgs([]string{"nat", "rule", "new", "NewNAT", "--from", "OldNAT", "--json"})
+	require.NoError(t, root.Execute())
+	require.Contains(t, out.String(), `"rule": "NewNAT"`)
+}
+
+func TestNATRule_New_RejectsExistingDraft(t *testing.T) {
+	d, _ := newRootForNATMutTest(t, nil)
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(out)
+	root.SetArgs([]string{"nat", "rule", "new", "MyNAT"})
+	require.NoError(t, root.Execute())
+
+	out.Reset()
+	root2 := NewRoot(*d)
+	root2.SetOut(out)
+	root2.SetErr(out)
+	root2.SetArgs([]string{"nat", "rule", "new", "MyNAT"})
+	err := root2.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already exists")
+}

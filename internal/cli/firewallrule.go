@@ -23,6 +23,7 @@ func newFirewallRuleCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.AddCommand(
 		newFirewallRuleListCmd(d, cat),
 		newFirewallRuleShowCmd(d, cat),
+		newFirewallRuleNewCmd(d, cat),
 		newFirewallRulePullCmd(d, cat),
 		newFirewallRuleDiffCmd(d, cat),
 		newFirewallRulePushCmd(d, cat),

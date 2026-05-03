@@ -150,6 +150,37 @@ func newNATRuleDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	return c
 }
 
+func newNATRuleNewCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
+	var fromRule string
+	c := &cobra.Command{
+		Use:   "new <name>",
+		Short: "Create a new NAT rule draft (template or --from existing)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profile, _ := cmd.Flags().GetString("profile")
+			result, err := natRuleMutSvc(d, cat).New(cmd.Context(), profile, args[0], fromRule)
+			if err != nil {
+				return err
+			}
+			jsonMode, _ := cmd.Flags().GetBool("json")
+			if jsonMode {
+				b, err := render.NATRulePullEnvelope(result)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"Draft written: %s\nOperation:     create\nSnapshot:      (none — first push will create one)\nEdit and run: sophosfw nat rule push %s --yes\n",
+				result.DraftPath, args[0])
+			return nil
+		},
+	}
+	c.Flags().StringVar(&fromRule, "from", "", "clone an existing rule's body as the starting template")
+	return c
+}
+
 // natRuleMutSvc builds a NATRuleSvc with Audit and BaseDir wired in,
 // and runs MigrateLegacyLayout once per CLI invocation (idempotent).
 func natRuleMutSvc(d RootDeps, cat *catalog.Catalog) *svc.NATRuleSvc {
