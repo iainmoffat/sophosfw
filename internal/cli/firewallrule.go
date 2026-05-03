@@ -22,14 +22,22 @@ func newFirewallRuleCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.AddCommand(
 		newFirewallRuleListCmd(d, cat),
 		newFirewallRuleShowCmd(d, cat),
+		newFirewallRulePullCmd(d, cat),
+		newFirewallRuleDiffCmd(d, cat),
+		newFirewallRulePushCmd(d, cat),
+		newFirewallRuleDeleteCmd(d, cat),
 	)
 	return cmd
 }
 
 func firewallRuleSvc(d RootDeps, cat *catalog.Catalog) *svc.FirewallRuleSvc {
-	return &svc.FirewallRuleSvc{Inner: &svc.ObjectSvc{
-		Config: d.Config, Creds: d.Creds, Catalog: cat, NewClient: d.NewClient,
-	}}
+	return &svc.FirewallRuleSvc{
+		Inner: &svc.ObjectSvc{
+			Config: d.Config, Creds: d.Creds, Catalog: cat, NewClient: d.NewClient,
+		},
+		Audit:   d.Audit,
+		BaseDir: d.BaseDir,
+	}
 }
 
 func newFirewallRuleListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
