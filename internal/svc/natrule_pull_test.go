@@ -188,6 +188,174 @@ func TestExtractNATReferences_FiltersSentinels(t *testing.T) {
 	require.Empty(t, refs)
 }
 
+func TestNATRuleSvc_Push_DryRun_NoSend(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	out, err := svc.Push(context.Background(), "home", "X", false, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.NotNil(t, out.Preview)
+	require.True(t, out.Preview.Mutating)
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Push_Apply_RefetchAndArchive(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	out, err := svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "update", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="update">`)
+	require.Contains(t, string(fc.sent[0]), `<NATRule>`)
+	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+}
+
+func TestNATRuleSvc_Push_DiffHashMismatch_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	fc.body["Status"] = "Disable"
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Push_DiffHashMismatch_IgnoreFlag_Applies(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	fc.body["Status"] = "Disable"
+
+	_, err = svc.Push(context.Background(), "home", "X", true, false)
+	require.NoError(t, err)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestNATRuleSvc_Push_HeaderRuleMismatch_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Rule = "Different"
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rule")
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Push_RequiredFieldMissing_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = bytes.ReplaceAll(d.Body, []byte("IPFamily: IPv4\n"), nil)
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "IPFamily")
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Push_ReadOnlyProfile_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	p, ok := svc.Inner.Config.Profiles["home"]
+	require.True(t, ok)
+	p.ReadOnly = true
+	svc.Inner.Config.Profiles["home"] = p
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrReadOnlyViolation))
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Push_Failure_AuditLogged(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	fc.sendErr = sophos.ErrServerError
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"nat_rule_push"`)
+	require.Contains(t, string(logBody), `"result":"error:server_error"`)
+}
+
+func TestMarshalNATRule_TagWrapper(t *testing.T) {
+	rule := map[string]any{
+		"Name": "X", "Status": "Enable",
+	}
+	out, err := marshalNATRule(rule)
+	require.NoError(t, err)
+	s := string(out)
+	require.True(t, strings.HasPrefix(s, "<NATRule>"))
+	require.True(t, strings.HasSuffix(s, "</NATRule>"))
+	require.Contains(t, s, "<Name>X</Name>")
+	require.Contains(t, s, "<Status>Enable</Status>")
+}
+
+func TestNATRuleSvc_Push_DiffHashMismatch_AuditsRejection(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	fc.body["Status"] = "Disable"
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"nat_rule_push"`)
+	require.Contains(t, string(logBody), `"result":"error:diff_hash_mismatch"`)
+}
+
 func TestNATRuleSvc_Diff_NoChanges(t *testing.T) {
 	body := map[string]any{
 		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",

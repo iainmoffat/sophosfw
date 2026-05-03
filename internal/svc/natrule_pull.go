@@ -1,11 +1,15 @@
 package svc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/iainmoffat/sophosfw/internal/draft"
+	"github.com/iainmoffat/sophosfw/internal/safety"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
@@ -205,4 +209,200 @@ func extractNATReferences(body map[string]any) []ReferenceSummary {
 		out = append(out, ReferenceSummary{Type: "Interface", Names: sortedKeys(ifaces)})
 	}
 	return out
+}
+
+// NATRulePushResult is what Push and Delete return.
+type NATRulePushResult struct {
+	Profile     string
+	Rule        string
+	Operation   string
+	DryRun      bool
+	Preview     *Preview
+	NewDiffHash string
+	Item        map[string]any
+}
+
+var requiredNATRuleFields = []string{"Name", "Status", "IPFamily"}
+
+// Push validates the draft and applies it to the firewall. Mirrors
+// FirewallRuleSvc.Push with NATRule-specific marshaling and audit op.
+func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ignoreHash, dryRun bool) (out *NATRulePushResult, err error) {
+	profile, name, perr := s.Inner.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return nil, perr
+	}
+
+	entryAudit := AuditEntry{
+		Profile:    name,
+		Operation:  "nat_rule_push",
+		ObjectType: "NATRule",
+		ObjectName: ruleName,
+	}
+	defer func() {
+		if err != nil && s.Audit != nil && entryAudit.Result == "" {
+			entryAudit.Result = "error:" + ErrorKind(err)
+			entryAudit.ErrorMessage = err.Error()
+			_ = s.Audit.Write(entryAudit)
+		}
+	}()
+
+	draftPath, perr := draft.DraftPath(s.BaseDir, name, "nat", ruleName)
+	if perr != nil {
+		return nil, perr
+	}
+	d, perr := draft.ReadDraft(draftPath)
+	if perr != nil {
+		return nil, perr
+	}
+
+	if d.Rule != ruleName {
+		return nil, fmt.Errorf("%w: draft header rule %q does not match cli arg %q", sophos.ErrInvalidRequest, d.Rule, ruleName)
+	}
+	if d.Profile != name {
+		return nil, fmt.Errorf("%w: draft header profile %q does not match active profile %q", sophos.ErrInvalidRequest, d.Profile, name)
+	}
+
+	parsed, perr := parseAndValidateNATRuleBody(d.Body)
+	if perr != nil {
+		return nil, perr
+	}
+
+	if profile.ReadOnly {
+		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
+	}
+
+	catEntry, ok := s.Inner.Catalog.Resolve("NATRule")
+	if !ok || !catEntry.Mutable {
+		return nil, fmt.Errorf("%w: NATRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
+	}
+
+	entryAudit.ExpectedDiffHash = d.DiffHash
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	}
+
+	if !ignoreHash {
+		live, perr := s.Get(ctx, profileName, ruleName)
+		if perr != nil {
+			return nil, perr
+		}
+		liveHash, perr := DiffHash(live)
+		if perr != nil {
+			return nil, perr
+		}
+		if liveHash != d.DiffHash {
+			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, d.DiffHash)
+		}
+	}
+
+	c, perr := s.Inner.Creds.Load(name)
+	if perr != nil {
+		return nil, perr
+	}
+	inner, perr := marshalNATRule(parsed)
+	if perr != nil {
+		return nil, perr
+	}
+	full, perr := sophos.BuildSetEnvelope("update", inner, c.Username, c.Password)
+	if perr != nil {
+		return nil, perr
+	}
+	entryAudit.RedactedXML = string(safety.RedactXML(full))
+
+	if dryRun {
+		mutating, verbs := safety.IsMutating(full)
+		pv := &Preview{
+			Profile:        name,
+			Mutating:       mutating,
+			Verbs:          verbs,
+			RedactedXML:    entryAudit.RedactedXML,
+			WouldSendBytes: len(full),
+		}
+		entryAudit.Result = "ok (dry-run)"
+		_ = s.Audit.Write(entryAudit)
+		return &NATRulePushResult{
+			Profile:   name,
+			Rule:      ruleName,
+			Operation: "update",
+			DryRun:    true,
+			Preview:   pv,
+		}, nil
+	}
+
+	cl := s.Inner.NewClient(profile, c)
+	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
+		entryAudit.Result = "error:" + ErrorKind(sendErr)
+		entryAudit.ErrorMessage = sendErr.Error()
+		_ = s.Audit.Write(entryAudit)
+		return nil, sendErr
+	}
+	entryAudit.Result = "ok"
+	_ = s.Audit.Write(entryAudit)
+
+	refetched, _ := s.Get(ctx, profileName, ruleName)
+	newHash := ""
+	if refetched != nil {
+		nh, hashErr := DiffHash(refetched)
+		if hashErr == nil {
+			newHash = nh
+		}
+	}
+	if refetched != nil && newHash != "" {
+		now := s.now()
+		snapPath, perr := draft.SnapshotPath(s.BaseDir, name, "nat", ruleName, now)
+		if perr == nil {
+			yamlBytes, merr := marshalCanonicalYAML(refetched)
+			if merr == nil {
+				_ = draft.WriteDraft(snapPath, &draft.Draft{
+					Profile: name, Rule: ruleName, PulledAt: now, DiffHash: newHash, Body: yamlBytes,
+				})
+				_ = draft.RotateSnapshots(s.BaseDir, name, "nat", ruleName, 10)
+			}
+		}
+		d.DiffHash = newHash
+		_ = draft.WriteDraft(draftPath, d)
+	}
+
+	return &NATRulePushResult{
+		Profile:     name,
+		Rule:        ruleName,
+		Operation:   "update",
+		DryRun:      false,
+		NewDiffHash: newHash,
+		Item:        refetched,
+	}, nil
+}
+
+func parseAndValidateNATRuleBody(body []byte) (map[string]any, error) {
+	var m map[string]any
+	if err := yaml.Unmarshal(body, &m); err != nil {
+		return nil, fmt.Errorf("%w: draft body is not valid YAML: %v", sophos.ErrInvalidRequest, err)
+	}
+	if m == nil {
+		return nil, fmt.Errorf("%w: draft body is empty", sophos.ErrInvalidRequest)
+	}
+	for _, k := range requiredNATRuleFields {
+		v, ok := m[k]
+		if !ok {
+			return nil, fmt.Errorf("%w: draft body missing required field %q", sophos.ErrInvalidRequest, k)
+		}
+		if str, isStr := v.(string); isStr && str == "" {
+			return nil, fmt.Errorf("%w: draft body field %q is empty", sophos.ErrInvalidRequest, k)
+		}
+	}
+	return m, nil
+}
+
+// marshalNATRule converts the parsed rule body to XML wrapped in
+// <NATRule>...</NATRule>. Lower-level helpers (writeMapChildren,
+// writeKeyValue, writeOpen, writeClose, validateXMLName) live in
+// firewallrule_pull.go and are tag-agnostic; reused as-is.
+func marshalNATRule(rule map[string]any) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString("<NATRule>")
+	if err := writeMapChildren(&buf, rule); err != nil {
+		return nil, err
+	}
+	buf.WriteString("</NATRule>")
+	return buf.Bytes(), nil
 }
