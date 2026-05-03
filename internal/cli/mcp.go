@@ -18,7 +18,7 @@ func newMCPServeCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	var defaultProfile string
 	c := &cobra.Command{
 		Use:   "serve",
-		Short: "Start the MCP server (Phase 4: 21 read-only tools, stdio transport)",
+		Short: "Start the MCP server (stdio transport)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s := mcp.NewServer(d.Version, mcp.Deps{
 				Config:         d.Config,

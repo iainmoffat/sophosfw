@@ -24,7 +24,7 @@ type FirewallRuleUpdateInput struct {
 	Name                   string         `json:"name" jsonschema:"required"`
 	Body                   map[string]any `json:"body" jsonschema:"required" jsonschema_description:"the edited body. Required keys same as create."`
 	ExpectedDiffHash       string         `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior firewall_rule_show; required unless ignoreExpectedDiffHash=true"`
-	IgnoreExpectedDiffHash bool           `json:"ignoreExpectedDiffHash,omitempty"`
+	IgnoreExpectedDiffHash bool           `json:"ignoreExpectedDiffHash,omitempty" jsonschema_description:"set true to push without supplying expectedDiffHash"`
 	Confirm                bool           `json:"confirm" jsonschema:"required"`
 	DryRun                 bool           `json:"dryRun,omitempty"`
 }
@@ -32,8 +32,8 @@ type FirewallRuleUpdateInput struct {
 type FirewallRuleDeleteInput struct {
 	Profile                string `json:"profile,omitempty"`
 	Name                   string `json:"name" jsonschema:"required"`
-	ExpectedDiffHash       string `json:"expectedDiffHash,omitempty"`
-	IgnoreExpectedDiffHash bool   `json:"ignoreExpectedDiffHash,omitempty"`
+	ExpectedDiffHash       string `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior firewall_rule_show; required unless ignoreExpectedDiffHash=true"`
+	IgnoreExpectedDiffHash bool   `json:"ignoreExpectedDiffHash,omitempty" jsonschema_description:"set true to delete without supplying expectedDiffHash"`
 	Confirm                bool   `json:"confirm" jsonschema:"required"`
 	DryRun                 bool   `json:"dryRun,omitempty"`
 }

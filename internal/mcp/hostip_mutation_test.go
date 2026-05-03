@@ -50,6 +50,7 @@ func newMutMcpServer(t *testing.T, body map[string][]json.RawMessage) (*Server, 
 		NewClient:      func(_ config.Profile, _ creds.Credentials) svc.Client { return fc },
 		DefaultProfile: "home",
 		Audit:          audit,
+		BaseDir:        t.TempDir(),
 	}), fc
 }
 
