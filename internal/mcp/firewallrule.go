@@ -28,10 +28,29 @@ func (s *Server) registerFirewallRule() {
 		Name: "firewall_rule_show", Description: "Get one FirewallRule by name. Response always includes _diffHash, which firewall_rule_update and firewall_rule_delete require as expectedDiffHash.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "Show firewall rule"},
 	}, s.handleFirewallRuleShow)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "firewall_rule_create",
+		Description: "Create a new FirewallRule. Requires confirm: true. Use dryRun: true to preview the envelope without sending. Returns sophosfw.v1.firewallRulePush on apply or sophosfw.v1.preview on dry-run. The body must include Name, Status, IPFamily, PolicyType plus a NetworkPolicy object.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Create firewall rule"},
+	}, s.handleFirewallRuleCreate)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "firewall_rule_update",
+		Description: "Update an existing FirewallRule. Requires confirm: true AND expectedDiffHash from a prior firewall_rule_show. Use dryRun: true to preview.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Update firewall rule"},
+	}, s.handleFirewallRuleUpdate)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "firewall_rule_delete",
+		Description: "Delete a FirewallRule by name. Requires confirm: true AND expectedDiffHash from a prior firewall_rule_show.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptrBool(true), Title: "Delete firewall rule"},
+	}, s.handleFirewallRuleDelete)
 }
 
 func (s *Server) firewallRuleSvc() *svc.FirewallRuleSvc {
-	return &svc.FirewallRuleSvc{Inner: s.objectSvc()}
+	return &svc.FirewallRuleSvc{
+		Inner:   s.objectSvc(),
+		Audit:   s.deps.Audit,
+		BaseDir: s.deps.BaseDir,
+	}
 }
 
 func (s *Server) handleFirewallRuleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in FirewallRuleListInput) (*sdkmcp.CallToolResult, any, error) {

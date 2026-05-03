@@ -24,6 +24,7 @@ type Deps struct {
 	NewClient      svc.ClientFactory
 	DefaultProfile string // from --profile flag at server startup; "" = use config currentProfile
 	Audit          *svc.AuditLog
+	BaseDir        string // base directory for draft/snapshot writes; empty = skip file ops
 }
 
 // Server wraps an sdk-mcp Server and the project Deps.
