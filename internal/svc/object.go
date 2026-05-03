@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/config"
@@ -92,10 +93,41 @@ func (s *ObjectSvc) List(ctx context.Context, profileName, tagOrAlias string, fi
 		if err != nil {
 			return nil, err
 		}
+		// Sophos sometimes returns a stub record (Name="" with all
+		// fields blank) when the result set is empty. Drop it so
+		// callers see a real Count.
+		if isEmptyStubRecord(v) {
+			continue
+		}
 		out.Items = append(out.Items, v)
 	}
 	out.Count = len(out.Items)
 	return out, nil
+}
+
+// isEmptyStubRecord returns true if v is a record whose Name field is
+// empty. Works for both typed structs (via reflection) and untyped
+// map[string]any values. Records without a Name field are never
+// considered stubs.
+func isEmptyStubRecord(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		s, _ := x["Name"].(string)
+		return s == ""
+	default:
+		rv := reflect.ValueOf(v)
+		if rv.Kind() == reflect.Ptr {
+			rv = rv.Elem()
+		}
+		if rv.Kind() != reflect.Struct {
+			return false
+		}
+		f := rv.FieldByName("Name")
+		if !f.IsValid() || f.Kind() != reflect.String {
+			return false
+		}
+		return f.String() == ""
+	}
 }
 
 // Get fetches a single record by name.

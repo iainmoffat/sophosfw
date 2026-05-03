@@ -73,6 +73,42 @@ func TestObjectSvc_List_AliasResolves(t *testing.T) {
 	require.Equal(t, "IPHost", out.Tag)
 }
 
+// TestObjectSvc_List_FiltersEmptyStub covers a Sophos quirk: list queries
+// against tags with no records sometimes return one stub row with all
+// fields blank instead of an empty body. ObjectSvc.List filters those
+// out so callers see Count=0.
+func TestObjectSvc_List_FiltersEmptyStub(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"IPHost": {json.RawMessage(`{"Name":"","IPFamily":"","HostType":""}`)},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.List(context.Background(), "home", "IPHost", nil)
+	require.NoError(t, err)
+	require.Equal(t, 0, out.Count)
+}
+
+func TestObjectSvc_List_FiltersStubAmongRealRecords(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"IPHost": {
+				json.RawMessage(`{"Name":"","IPFamily":"","HostType":""}`),
+				json.RawMessage(`{"Name":"LAN","IPFamily":"IPv4","HostType":"Network","IPAddress":"10.0.0.0","Subnet":"255.255.255.0"}`),
+			},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.List(context.Background(), "home", "IPHost", nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, out.Count)
+	host, ok := out.Items[0].(catalog.IPHost)
+	require.True(t, ok)
+	require.Equal(t, "LAN", host.Name)
+}
+
 func TestObjectSvc_List_UnknownTag(t *testing.T) {
 	s := newObjectSvc(t, &cannedClient{})
 	_, err := s.List(context.Background(), "home", "Nope", nil)
