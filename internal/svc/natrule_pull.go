@@ -3,7 +3,9 @@ package svc
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -405,4 +407,127 @@ func marshalNATRule(rule map[string]any) ([]byte, error) {
 	}
 	buf.WriteString("</NATRule>")
 	return buf.Bytes(), nil
+}
+
+// Delete removes a NATRule by name. Same semantics as FirewallRuleSvc.Delete.
+func (s *NATRuleSvc) Delete(ctx context.Context, profileName, ruleName, expectedHash string, ignoreHash, dryRun bool) (out *NATRulePushResult, err error) {
+	profile, name, perr := s.Inner.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return nil, perr
+	}
+
+	entryAudit := AuditEntry{
+		Profile:    name,
+		Operation:  "nat_rule_delete",
+		ObjectType: "NATRule",
+		ObjectName: ruleName,
+	}
+	if expectedHash != "" {
+		entryAudit.ExpectedDiffHash = expectedHash
+	}
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	}
+	defer func() {
+		if err != nil && s.Audit != nil && entryAudit.Result == "" {
+			entryAudit.Result = "error:" + ErrorKind(err)
+			entryAudit.ErrorMessage = err.Error()
+			_ = s.Audit.Write(entryAudit)
+		}
+	}()
+
+	if expectedHash == "" && !ignoreHash {
+		return nil, fmt.Errorf("%w: expectedDiffHash is required for delete (or pass --ignore-diff-hash)", sophos.ErrInvalidRequest)
+	}
+
+	if profile.ReadOnly {
+		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
+	}
+
+	catEntry, ok := s.Inner.Catalog.Resolve("NATRule")
+	if !ok || !catEntry.Mutable {
+		return nil, fmt.Errorf("%w: NATRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
+	}
+
+	live, perr := s.Get(ctx, profileName, ruleName)
+	if perr != nil {
+		return nil, perr
+	}
+	if live == nil {
+		return nil, fmt.Errorf("NAT rule %q: %w", ruleName, sophos.ErrNotFound)
+	}
+	if !ignoreHash {
+		liveHash, perr := DiffHash(live)
+		if perr != nil {
+			return nil, perr
+		}
+		if liveHash != expectedHash {
+			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, expectedHash)
+		}
+	}
+
+	c, perr := s.Inner.Creds.Load(name)
+	if perr != nil {
+		return nil, perr
+	}
+	var inner bytes.Buffer
+	inner.WriteString("<NATRule><Name>")
+	if err := xml.EscapeText(&inner, []byte(ruleName)); err != nil {
+		return nil, err
+	}
+	inner.WriteString("</Name></NATRule>")
+	full, perr := sophos.BuildRemoveEnvelope(inner.Bytes(), c.Username, c.Password)
+	if perr != nil {
+		return nil, perr
+	}
+	entryAudit.RedactedXML = string(safety.RedactXML(full))
+
+	if dryRun {
+		mutating, verbs := safety.IsMutating(full)
+		pv := &Preview{
+			Profile:        name,
+			Mutating:       mutating,
+			Verbs:          verbs,
+			RedactedXML:    entryAudit.RedactedXML,
+			WouldSendBytes: len(full),
+		}
+		entryAudit.Result = "ok (dry-run)"
+		_ = s.Audit.Write(entryAudit)
+		return &NATRulePushResult{
+			Profile:   name,
+			Rule:      ruleName,
+			Operation: "delete",
+			DryRun:    true,
+			Preview:   pv,
+		}, nil
+	}
+
+	cl := s.Inner.NewClient(profile, c)
+	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
+		entryAudit.Result = "error:" + ErrorKind(sendErr)
+		entryAudit.ErrorMessage = sendErr.Error()
+		_ = s.Audit.Write(entryAudit)
+		return nil, sendErr
+	}
+	entryAudit.Result = "ok"
+	_ = s.Audit.Write(entryAudit)
+
+	now := s.now()
+	regularPath, _ := draft.SnapshotPath(s.BaseDir, name, "nat", ruleName, now)
+	deletedPath := strings.TrimSuffix(regularPath, ".yaml") + "-deleted.yaml"
+	yamlBytes, merr := marshalCanonicalYAML(live)
+	if merr == nil {
+		liveHash, _ := DiffHash(live)
+		_ = draft.WriteDraft(deletedPath, &draft.Draft{
+			Profile: name, Rule: ruleName, PulledAt: now, DiffHash: liveHash, Body: yamlBytes,
+		})
+		_ = draft.RotateSnapshots(s.BaseDir, name, "nat", ruleName, 10)
+	}
+
+	return &NATRulePushResult{
+		Profile:   name,
+		Rule:      ruleName,
+		Operation: "delete",
+		DryRun:    false,
+	}, nil
 }

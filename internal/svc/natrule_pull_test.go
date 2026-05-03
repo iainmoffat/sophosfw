@@ -426,3 +426,68 @@ func TestNATRuleSvc_Push_RejectsMaliciousKeyInBody(t *testing.T) {
 	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
 	require.Empty(t, fc.sent, "must not send envelope when XML tag is invalid")
 }
+
+func TestNATRuleSvc_Delete_RequiresExpectedHash(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Delete(context.Background(), "home", "X", "", false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "expectedDiffHash")
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Delete_Apply(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, baseDir := newNATSvcPull(t, body)
+	hash, err := DiffHash(body)
+	require.NoError(t, err)
+
+	out, err := svc.Delete(context.Background(), "home", "X", hash, false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "delete", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Remove>`)
+	require.Contains(t, string(fc.sent[0]), `<NATRule>`)
+	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots", "nat")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	hasDeleted := false
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "-deleted") {
+			hasDeleted = true
+		}
+	}
+	require.True(t, hasDeleted)
+}
+
+func TestNATRuleSvc_Delete_DiffHashMismatch_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.Delete(context.Background(), "home", "X", "definitely-wrong-hash-0000000000000000000000000000000000000000", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_Delete_DiffHashMismatch_AuditsRejection(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, body)
+	_, err := svc.Delete(context.Background(), "home", "X", "definitely-wrong-hash-0000000000000000000000000000000000000000", false, false)
+	require.Error(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"nat_rule_delete"`)
+	require.Contains(t, string(logBody), `"result":"error:diff_hash_mismatch"`)
+}
