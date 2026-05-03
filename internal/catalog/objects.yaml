@@ -87,6 +87,7 @@ objects:
     filterable: [Name, Status, IPFamily]
     usageTag: ""
     typedParser: ""
+    mutable: true
 
   - tag: NATRule
     aliases: [nat-rule, nat]
