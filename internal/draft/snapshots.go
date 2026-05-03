@@ -1,6 +1,7 @@
 package draft
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -8,10 +9,13 @@ import (
 )
 
 // ListSnapshots returns the absolute paths of all snapshot files for
-// ruleName, sorted oldest-first by filename. Includes both regular
-// `<slug>-<ts>.yaml` files and the `-deleted` tombstones.
-func ListSnapshots(baseDir, profile, ruleName string) ([]string, error) {
-	dir := filepath.Join(baseDir, "profiles", profile, "snapshots")
+// ruleName under <profile>/snapshots/<tag>/, sorted oldest-first.
+// Includes both regular and -deleted tombstones.
+func ListSnapshots(baseDir, profile, tag, ruleName string) ([]string, error) {
+	if _, ok := validTags[tag]; !ok {
+		return nil, fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat)", tag)
+	}
+	dir := filepath.Join(baseDir, "profiles", profile, "snapshots", tag)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -39,14 +43,13 @@ func ListSnapshots(baseDir, profile, ruleName string) ([]string, error) {
 	return out, nil
 }
 
-// RotateSnapshots deletes the oldest snapshots for ruleName so that at
-// most `keep` remain. If keep <= 0, nothing is deleted (defensive
-// guard). If fewer than keep snapshots exist, no-op.
-func RotateSnapshots(baseDir, profile, ruleName string, keep int) error {
+// RotateSnapshots deletes oldest snapshots for ruleName so at most
+// `keep` remain. keep <= 0 → no-op.
+func RotateSnapshots(baseDir, profile, tag, ruleName string, keep int) error {
 	if keep <= 0 {
 		return nil
 	}
-	all, err := ListSnapshots(baseDir, profile, ruleName)
+	all, err := ListSnapshots(baseDir, profile, tag, ruleName)
 	if err != nil {
 		return err
 	}

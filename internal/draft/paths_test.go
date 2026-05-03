@@ -39,14 +39,14 @@ func TestSlug_UnicodeFallback(t *testing.T) {
 
 func TestDraftPath_NoCollision(t *testing.T) {
 	base := t.TempDir()
-	p, err := DraftPath(base, "home", "WAN-to-LAN")
+	p, err := DraftPath(base, "home", "firewall", "WAN-to-LAN")
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(base, "profiles", "home", "drafts", "wan-to-lan.yaml"), p)
+	require.Equal(t, filepath.Join(base, "profiles", "home", "drafts", "firewall", "wan-to-lan.yaml"), p)
 }
 
 func TestDraftPath_CollisionAppendsHashSuffix(t *testing.T) {
 	base := t.TempDir()
-	draftsDir := filepath.Join(base, "profiles", "home", "drafts")
+	draftsDir := filepath.Join(base, "profiles", "home", "drafts", "firewall")
 	require.NoError(t, os.MkdirAll(draftsDir, 0o700))
 
 	conflictingDraft := filepath.Join(draftsDir, "wan-to-lan.yaml")
@@ -54,7 +54,7 @@ func TestDraftPath_CollisionAppendsHashSuffix(t *testing.T) {
 		[]byte("# rule: Wan To Lan\n# DO NOT EDIT ABOVE THIS LINE\n---\nName: Wan To Lan\n"),
 		0o600))
 
-	p, err := DraftPath(base, "home", "WAN-to-LAN")
+	p, err := DraftPath(base, "home", "firewall", "WAN-to-LAN")
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(filepath.Base(p), "wan-to-lan-"))
 	require.True(t, strings.HasSuffix(p, ".yaml"))
@@ -63,9 +63,9 @@ func TestDraftPath_CollisionAppendsHashSuffix(t *testing.T) {
 
 func TestDraftPath_SameNameResolvesToSamePath(t *testing.T) {
 	base := t.TempDir()
-	p1, err := DraftPath(base, "home", "WAN-to-LAN")
+	p1, err := DraftPath(base, "home", "firewall", "WAN-to-LAN")
 	require.NoError(t, err)
-	p2, err := DraftPath(base, "home", "WAN-to-LAN")
+	p2, err := DraftPath(base, "home", "firewall", "WAN-to-LAN")
 	require.NoError(t, err)
 	require.Equal(t, p1, p2)
 }
@@ -80,9 +80,49 @@ func mustParseTime(t *testing.T, s string) time.Time {
 func TestSnapshotPath_TimestampInName(t *testing.T) {
 	base := t.TempDir()
 	tt := mustParseTime(t, "2026-05-02T15:30:00Z")
-	p, err := SnapshotPath(base, "home", "WAN-to-LAN", tt)
+	p, err := SnapshotPath(base, "home", "firewall", "WAN-to-LAN", tt)
 	require.NoError(t, err)
 	require.Contains(t, filepath.Base(p), "wan-to-lan-")
 	require.Contains(t, filepath.Base(p), "2026-05-02T15-30-00Z")
 	require.True(t, strings.HasSuffix(p, ".yaml"))
+}
+
+func TestDraftPath_TagInPath(t *testing.T) {
+	base := t.TempDir()
+	p, err := DraftPath(base, "home", "firewall", "WAN-to-LAN")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(base, "profiles", "home", "drafts", "firewall", "wan-to-lan.yaml"), p)
+
+	p2, err := DraftPath(base, "home", "nat", "DNAT-to-X")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(base, "profiles", "home", "drafts", "nat", "dnat-to-x.yaml"), p2)
+}
+
+func TestSnapshotPath_TagInPath(t *testing.T) {
+	base := t.TempDir()
+	tt := mustParseTime(t, "2026-05-02T15:30:00Z")
+	p, err := SnapshotPath(base, "home", "nat", "X", tt)
+	require.NoError(t, err)
+	require.Contains(t, p, filepath.Join("profiles", "home", "snapshots", "nat"))
+}
+
+func TestDraftPath_RejectsInvalidTag(t *testing.T) {
+	base := t.TempDir()
+	_, err := DraftPath(base, "home", "../etc", "X")
+	require.Error(t, err)
+	_, err = DraftPath(base, "home", "", "X")
+	require.Error(t, err)
+}
+
+func TestSnapshotPath_RejectsInvalidTag(t *testing.T) {
+	base := t.TempDir()
+	tt := mustParseTime(t, "2026-05-02T15:30:00Z")
+	_, err := SnapshotPath(base, "home", "../etc", "X", tt)
+	require.Error(t, err)
+}
+
+func TestListSnapshots_RejectsInvalidTag(t *testing.T) {
+	base := t.TempDir()
+	_, err := ListSnapshots(base, "home", "../etc", "X")
+	require.Error(t, err)
 }

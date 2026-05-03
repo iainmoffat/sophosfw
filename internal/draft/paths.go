@@ -5,6 +5,7 @@ package draft
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,12 +29,22 @@ func Slug(name string) string {
 	return s
 }
 
-// DraftPath returns the absolute path to the draft file for ruleName.
-// If a draft already exists at the plain-slug path but its header
-// records a DIFFERENT original rule name, returns a path with a
-// 6-hex-char suffix derived from SHA-256(ruleName).
-func DraftPath(baseDir, profile, ruleName string) (string, error) {
-	dir := filepath.Join(baseDir, "profiles", profile, "drafts")
+// validTags lists the tag values DraftPath/SnapshotPath/ListSnapshots/
+// RotateSnapshots accept. A closed allowlist defends against
+// path-traversal via the tag parameter.
+var validTags = map[string]struct{}{
+	"firewall": {},
+	"nat":      {},
+}
+
+// DraftPath returns the absolute path to the draft file for ruleName
+// under baseDir/profiles/<profile>/drafts/<tag>/. Tag must be a member
+// of validTags.
+func DraftPath(baseDir, profile, tag, ruleName string) (string, error) {
+	if _, ok := validTags[tag]; !ok {
+		return "", fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat)", tag)
+	}
+	dir := filepath.Join(baseDir, "profiles", profile, "drafts", tag)
 	slug := Slug(ruleName)
 	plain := filepath.Join(dir, slug+".yaml")
 
@@ -50,10 +61,12 @@ func DraftPath(baseDir, profile, ruleName string) (string, error) {
 }
 
 // SnapshotPath returns the absolute path to the snapshot file for
-// ruleName at time t. Time formatted as ISO 8601 UTC with colons
-// replaced by dashes.
-func SnapshotPath(baseDir, profile, ruleName string, t time.Time) (string, error) {
-	dir := filepath.Join(baseDir, "profiles", profile, "snapshots")
+// ruleName at time t under baseDir/profiles/<profile>/snapshots/<tag>/.
+func SnapshotPath(baseDir, profile, tag, ruleName string, t time.Time) (string, error) {
+	if _, ok := validTags[tag]; !ok {
+		return "", fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat)", tag)
+	}
+	dir := filepath.Join(baseDir, "profiles", profile, "snapshots", tag)
 	slug := Slug(ruleName)
 	stamp := t.UTC().Format("2006-01-02T15-04-05Z")
 	return filepath.Join(dir, slug+"-"+stamp+".yaml"), nil

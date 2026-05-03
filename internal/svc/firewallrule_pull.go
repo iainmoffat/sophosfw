@@ -60,12 +60,12 @@ func (s *FirewallRuleSvc) Pull(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
-	draftPath, err := draft.DraftPath(s.BaseDir, name, ruleName)
+	draftPath, err := draft.DraftPath(s.BaseDir, name, "firewall", ruleName)
 	if err != nil {
 		return nil, err
 	}
 	now := s.now()
-	snapPath, err := draft.SnapshotPath(s.BaseDir, name, ruleName, now)
+	snapPath, err := draft.SnapshotPath(s.BaseDir, name, "firewall", ruleName, now)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (s *FirewallRuleSvc) Pull(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
-	if err := draft.RotateSnapshots(s.BaseDir, name, ruleName, 10); err != nil {
+	if err := draft.RotateSnapshots(s.BaseDir, name, "firewall", ruleName, 10); err != nil {
 		return nil, err
 	}
 
@@ -250,7 +250,7 @@ func (s *FirewallRuleSvc) Diff(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
-	draftPath, err := draft.DraftPath(s.BaseDir, name, ruleName)
+	draftPath, err := draft.DraftPath(s.BaseDir, name, "firewall", ruleName)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (s *FirewallRuleSvc) Diff(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
-	snaps, err := draft.ListSnapshots(s.BaseDir, name, ruleName)
+	snaps, err := draft.ListSnapshots(s.BaseDir, name, "firewall", ruleName)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	}()
 
 	// 1. Read draft.
-	draftPath, err := draft.DraftPath(s.BaseDir, name, ruleName)
+	draftPath, err := draft.DraftPath(s.BaseDir, name, "firewall", ruleName)
 	if err != nil {
 		return nil, err
 	}
@@ -513,14 +513,14 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	}
 	if refetched != nil && newHash != "" {
 		now := s.now()
-		snapPath, perr := draft.SnapshotPath(s.BaseDir, name, ruleName, now)
+		snapPath, perr := draft.SnapshotPath(s.BaseDir, name, "firewall", ruleName, now)
 		if perr == nil {
 			yamlBytes, merr := marshalCanonicalYAML(refetched)
 			if merr == nil {
 				_ = draft.WriteDraft(snapPath, &draft.Draft{
 					Profile: name, Rule: ruleName, PulledAt: now, DiffHash: newHash, Body: yamlBytes,
 				})
-				_ = draft.RotateSnapshots(s.BaseDir, name, ruleName, 10)
+				_ = draft.RotateSnapshots(s.BaseDir, name, "firewall", ruleName, 10)
 			}
 		}
 		// Update draft header diffHash (keep the user's body edits) so the
@@ -769,7 +769,7 @@ func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, exp
 
 	// 8. Archive last-known state with -deleted suffix.
 	now := s.now()
-	regularPath, _ := draft.SnapshotPath(s.BaseDir, name, ruleName, now)
+	regularPath, _ := draft.SnapshotPath(s.BaseDir, name, "firewall", ruleName, now)
 	deletedPath := strings.TrimSuffix(regularPath, ".yaml") + "-deleted.yaml"
 	yamlBytes, merr := marshalCanonicalYAML(live)
 	if merr == nil {
@@ -777,7 +777,7 @@ func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, exp
 		_ = draft.WriteDraft(deletedPath, &draft.Draft{
 			Profile: name, Rule: ruleName, PulledAt: now, DiffHash: liveHash, Body: yamlBytes,
 		})
-		_ = draft.RotateSnapshots(s.BaseDir, name, ruleName, 10)
+		_ = draft.RotateSnapshots(s.BaseDir, name, "firewall", ruleName, 10)
 	}
 
 	return &FirewallRulePushResult{

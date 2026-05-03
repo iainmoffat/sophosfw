@@ -126,7 +126,7 @@ func TestFirewallRuleSvc_Pull_OverwritesExistingDraft(t *testing.T) {
 	_, err = svc.Pull(context.Background(), "home", "X")
 	require.NoError(t, err)
 	// Fixed Now → both pulls write to the same snapshot filename → 1 file.
-	snaps, err := draft.ListSnapshots(baseDir, "home", "X")
+	snaps, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
 	require.NoError(t, err)
 	require.Len(t, snaps, 1)
 }
@@ -136,7 +136,7 @@ func TestFirewallRuleSvc_Pull_RotatesOldSnapshots(t *testing.T) {
 		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
 	}
 	svc, _, baseDir := newFwRuleSvc(t, body)
-	dir := filepath.Join(baseDir, "profiles", "home", "snapshots")
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots", "firewall")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	for i := 0; i < 12; i++ {
 		stamp := time.Date(2026, 5, 1, i, 0, 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
@@ -145,7 +145,7 @@ func TestFirewallRuleSvc_Pull_RotatesOldSnapshots(t *testing.T) {
 	}
 	_, err := svc.Pull(context.Background(), "home", "X")
 	require.NoError(t, err)
-	snaps, err := draft.ListSnapshots(baseDir, "home", "X")
+	snaps, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(snaps), 10)
 }
@@ -218,7 +218,7 @@ func TestFirewallRuleSvc_Diff_MissingSnapshot(t *testing.T) {
 	svc, _, baseDir := newFwRuleSvc(t, body)
 	_, err := svc.Pull(context.Background(), "home", "X")
 	require.NoError(t, err)
-	dir := filepath.Join(baseDir, "profiles", "home", "snapshots")
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots", "firewall")
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		require.NoError(t, os.Remove(filepath.Join(dir, e.Name())))
@@ -397,7 +397,7 @@ func TestFirewallRuleSvc_Push_Apply_ArchivesNewSnapshot(t *testing.T) {
 	svc, _, baseDir := newFwRuleSvc(t, body)
 	_, err := svc.Pull(context.Background(), "home", "X")
 	require.NoError(t, err)
-	preCount, err := draft.ListSnapshots(baseDir, "home", "X")
+	preCount, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
 	require.NoError(t, err)
 	require.Len(t, preCount, 1, "Pull writes 1 snapshot")
 
@@ -411,7 +411,7 @@ func TestFirewallRuleSvc_Push_Apply_ArchivesNewSnapshot(t *testing.T) {
 	_, err = svc.Push(context.Background(), "home", "X", false, false)
 	require.NoError(t, err)
 
-	postCount, err := draft.ListSnapshots(baseDir, "home", "X")
+	postCount, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
 	require.NoError(t, err)
 	require.Len(t, postCount, 2, "Push apply must archive a new snapshot")
 }
@@ -484,7 +484,7 @@ func TestFirewallRuleSvc_Delete_Apply(t *testing.T) {
 	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
 
 	// Verify a -deleted snapshot was archived.
-	dir := filepath.Join(baseDir, "profiles", "home", "snapshots")
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots", "firewall")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	hasDeleted := false
