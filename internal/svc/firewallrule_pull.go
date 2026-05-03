@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -632,4 +633,128 @@ func writeClose(buf *bytes.Buffer, key string) {
 	buf.WriteString("</")
 	buf.WriteString(key)
 	buf.WriteString(">")
+}
+
+// Delete removes a FirewallRule from the appliance, enforcing expectedHash
+// validation and archiving the -deleted snapshot on success.
+func (s *FirewallRuleSvc) Delete(ctx context.Context, profileName, ruleName, expectedHash string, ignoreHash, dryRun bool) (*FirewallRulePushResult, error) {
+	profile, name, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. CLI-side enforcement (defense in depth).
+	if expectedHash == "" && !ignoreHash {
+		return nil, fmt.Errorf("%w: expectedDiffHash is required for delete (or pass --ignore-diff-hash)", sophos.ErrInvalidRequest)
+	}
+
+	// 2. Read-only profile.
+	if profile.ReadOnly {
+		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
+	}
+
+	// 3. Catalog Mutable check.
+	entry, ok := s.Inner.Catalog.Resolve("FirewallRule")
+	if !ok || !entry.Mutable {
+		return nil, fmt.Errorf("%w: FirewallRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
+	}
+
+	// 4. Refetch + hash compare (unless ignored).
+	live, err := s.Get(ctx, profileName, ruleName)
+	if err != nil {
+		return nil, err
+	}
+	if live == nil {
+		return nil, fmt.Errorf("firewall rule %q: %w", ruleName, sophos.ErrNotFound)
+	}
+	if !ignoreHash {
+		liveHash, err := DiffHash(live)
+		if err != nil {
+			return nil, err
+		}
+		if liveHash != expectedHash {
+			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, expectedHash)
+		}
+	}
+
+	// 5. Build envelope (XML-escape the rule name).
+	c, err := s.Inner.Creds.Load(name)
+	if err != nil {
+		return nil, err
+	}
+	var inner bytes.Buffer
+	inner.WriteString("<FirewallRule><Name>")
+	if err := xml.EscapeText(&inner, []byte(ruleName)); err != nil {
+		return nil, err
+	}
+	inner.WriteString("</Name></FirewallRule>")
+	full, err := sophos.BuildRemoveEnvelope(inner.Bytes(), c.Username, c.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Audit entry skeleton.
+	entryAudit := AuditEntry{
+		Profile:          name,
+		Operation:        "firewall_rule_delete",
+		ObjectType:       "FirewallRule",
+		ObjectName:       ruleName,
+		ExpectedDiffHash: expectedHash,
+		RedactedXML:      string(safety.RedactXML(full)),
+	}
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	}
+
+	// 7. Dry-run.
+	if dryRun {
+		mutating, verbs := safety.IsMutating(full)
+		pv := &Preview{
+			Profile:        name,
+			Mutating:       mutating,
+			Verbs:          verbs,
+			RedactedXML:    entryAudit.RedactedXML,
+			WouldSendBytes: len(full),
+		}
+		entryAudit.Result = "ok (dry-run)"
+		_ = s.Audit.Write(entryAudit)
+		return &FirewallRulePushResult{
+			Profile:   name,
+			Rule:      ruleName,
+			Operation: "delete",
+			DryRun:    true,
+			Preview:   pv,
+		}, nil
+	}
+
+	// 8. Apply.
+	cl := s.Inner.NewClient(profile, c)
+	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
+		entryAudit.Result = "error:" + ErrorKind(sendErr)
+		entryAudit.ErrorMessage = sendErr.Error()
+		_ = s.Audit.Write(entryAudit)
+		return nil, sendErr
+	}
+	entryAudit.Result = "ok"
+	_ = s.Audit.Write(entryAudit)
+
+	// 9. Archive last-known state with -deleted suffix.
+	now := s.now()
+	regularPath, _ := draft.SnapshotPath(s.BaseDir, name, ruleName, now)
+	deletedPath := strings.TrimSuffix(regularPath, ".yaml") + "-deleted.yaml"
+	yamlBytes, merr := marshalCanonicalYAML(live)
+	if merr == nil {
+		liveHash, _ := DiffHash(live)
+		_ = draft.WriteDraft(deletedPath, &draft.Draft{
+			Profile: name, Rule: ruleName, PulledAt: now, DiffHash: liveHash, Body: yamlBytes,
+		})
+		_ = draft.RotateSnapshots(s.BaseDir, name, ruleName, 10)
+	}
+
+	return &FirewallRulePushResult{
+		Profile:   name,
+		Rule:      ruleName,
+		Operation: "delete",
+		DryRun:    false,
+	}, nil
 }

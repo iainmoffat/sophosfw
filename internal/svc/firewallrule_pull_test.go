@@ -415,3 +415,55 @@ func TestFirewallRuleSvc_Push_Apply_ArchivesNewSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, postCount, 2, "Push apply must archive a new snapshot")
 }
+
+func TestFirewallRuleSvc_Delete_RequiresExpectedHash(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Delete(context.Background(), "home", "X", "", false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "expectedDiffHash")
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_Delete_Apply(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, baseDir := newFwRuleSvc(t, body)
+	hash, err := DiffHash(body)
+	require.NoError(t, err)
+
+	out, err := svc.Delete(context.Background(), "home", "X", hash, false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "delete", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Remove>`)
+	require.Contains(t, string(fc.sent[0]), `<FirewallRule>`)
+	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+
+	// Verify a -deleted snapshot was archived.
+	dir := filepath.Join(baseDir, "profiles", "home", "snapshots")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	hasDeleted := false
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "-deleted") {
+			hasDeleted = true
+		}
+	}
+	require.True(t, hasDeleted, "expected a -deleted snapshot")
+}
+
+func TestFirewallRuleSvc_Delete_DiffHashMismatch_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Delete(context.Background(), "home", "X", "definitely-wrong-hash-0000000000000000000000000000000000000000", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+	require.Empty(t, fc.sent)
+}
