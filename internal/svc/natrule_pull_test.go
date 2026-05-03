@@ -74,10 +74,10 @@ func newNATSvcPull(t *testing.T, body map[string]any) (*NATRuleSvc, *fakePullNAT
 
 func TestNATRuleSvc_Pull_WritesSnapshotAndDraft(t *testing.T) {
 	body := map[string]any{
-		"Name":     "DNAT-X",
-		"Status":   "Enable",
-		"IPFamily": "IPv4",
-		"Position": "Top",
+		"Name":                        "DNAT-X",
+		"Status":                      "Enable",
+		"IPFamily":                    "IPv4",
+		"Position":                    "Top",
 		"OriginalSourceNetworks":      map[string]any{"Network": "Any"},
 		"OriginalDestinationNetworks": map[string]any{"Network": "#Port4"},
 		"OriginalServices":            map[string]any{"Service": "HTTPS"},
