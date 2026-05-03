@@ -97,3 +97,68 @@ func TestErrorEnvelope_NoProfile(t *testing.T) {
 	require.Contains(t, s, `"schema": "sophosfw.v1.error"`)
 	require.False(t, strings.Contains(s, `"profile"`), "empty profile should be omitted")
 }
+
+func TestFirewallRulePullEnvelope_Schema(t *testing.T) {
+	r := &svc.FirewallRulePullResult{
+		Profile:      "home",
+		Rule:         "WAN-to-LAN",
+		DraftPath:    "/path/draft.yaml",
+		SnapshotPath: "/path/snapshot.yaml",
+		DiffHash:     "abc123",
+		References: []svc.ReferenceSummary{
+			{Type: "IPHost", Names: []string{"LAN-network"}},
+		},
+	}
+	b, err := FirewallRulePullEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"schema": "sophosfw.v1.firewallRulePull"`)
+	require.Contains(t, string(b), `"draftPath": "/path/draft.yaml"`)
+	require.Contains(t, string(b), `"diffHash": "abc123"`)
+	require.Contains(t, string(b), `"LAN-network"`)
+}
+
+func TestFirewallRuleDiffEnvelope_Schema(t *testing.T) {
+	r := &svc.FirewallRuleDiffResult{
+		Profile:        "home",
+		Rule:           "WAN-to-LAN",
+		HasChanges:     true,
+		UnifiedDiff:    "--- snapshot\n+++ draft\n",
+		StructuredDiff: []svc.DiffEntry{{Path: "Status", Op: "changed", OldValue: "Enable", NewValue: "Disable"}},
+	}
+	b, err := FirewallRuleDiffEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"schema": "sophosfw.v1.firewallRuleDiff"`)
+	require.Contains(t, string(b), `"hasChanges": true`)
+	require.Contains(t, string(b), `"path": "Status"`)
+}
+
+func TestFirewallRulePushEnvelope_DryRun(t *testing.T) {
+	r := &svc.FirewallRulePushResult{
+		Profile:   "home",
+		Rule:      "X",
+		Operation: "update",
+		DryRun:    true,
+		Preview:   &svc.Preview{Mutating: true, Verbs: []string{"Set:update"}},
+	}
+	b, err := FirewallRulePushEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"schema": "sophosfw.v1.firewallRulePush"`)
+	require.Contains(t, string(b), `"applied": false`)
+	require.Contains(t, string(b), `"dryRun": true`)
+}
+
+func TestFirewallRulePushEnvelope_Apply(t *testing.T) {
+	r := &svc.FirewallRulePushResult{
+		Profile:     "home",
+		Rule:        "X",
+		Operation:   "update",
+		DryRun:      false,
+		NewDiffHash: "def456",
+		Item:        map[string]any{"Name": "X", "Status": "Enable"},
+	}
+	b, err := FirewallRulePushEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"applied": true`)
+	require.Contains(t, string(b), `"newDiffHash": "def456"`)
+	require.Contains(t, string(b), `"item":`)
+}

@@ -280,6 +280,73 @@ func ErrorEnvelope(kind, message, profile string) ([]byte, error) {
 	return marshalEnvelope("sophosfw.v1.error", payload)
 }
 
+// FirewallRulePullEnvelope renders sophosfw.v1.firewallRulePull.
+func FirewallRulePullEnvelope(r *svc.FirewallRulePullResult) ([]byte, error) {
+	refs := make([]map[string]any, 0, len(r.References))
+	for _, rs := range r.References {
+		refs = append(refs, map[string]any{
+			"type":  rs.Type,
+			"names": rs.Names,
+		})
+	}
+	payload := map[string]any{
+		"profile":      r.Profile,
+		"rule":         r.Rule,
+		"draftPath":    r.DraftPath,
+		"snapshotPath": r.SnapshotPath,
+		"diffHash":     r.DiffHash,
+		"references":   refs,
+	}
+	return marshalEnvelope("sophosfw.v1.firewallRulePull", payload)
+}
+
+// FirewallRuleDiffEnvelope renders sophosfw.v1.firewallRuleDiff.
+func FirewallRuleDiffEnvelope(r *svc.FirewallRuleDiffResult) ([]byte, error) {
+	entries := make([]map[string]any, 0, len(r.StructuredDiff))
+	for _, e := range r.StructuredDiff {
+		entries = append(entries, map[string]any{
+			"path":     e.Path,
+			"op":       e.Op,
+			"oldValue": e.OldValue,
+			"newValue": e.NewValue,
+		})
+	}
+	payload := map[string]any{
+		"profile":     r.Profile,
+		"rule":        r.Rule,
+		"hasChanges":  r.HasChanges,
+		"unifiedDiff": r.UnifiedDiff,
+		"diffEntries": entries,
+	}
+	return marshalEnvelope("sophosfw.v1.firewallRuleDiff", payload)
+}
+
+// FirewallRulePushEnvelope renders sophosfw.v1.firewallRulePush.
+func FirewallRulePushEnvelope(r *svc.FirewallRulePushResult) ([]byte, error) {
+	payload := map[string]any{
+		"profile":   r.Profile,
+		"rule":      r.Rule,
+		"operation": r.Operation,
+		"applied":   !r.DryRun,
+		"dryRun":    r.DryRun,
+	}
+	if r.DryRun && r.Preview != nil {
+		payload["preview"] = map[string]any{
+			"mutating":       r.Preview.Mutating,
+			"verbs":          r.Preview.Verbs,
+			"redactedXml":    r.Preview.RedactedXML,
+			"wouldSendBytes": r.Preview.WouldSendBytes,
+		}
+	}
+	if !r.DryRun {
+		payload["newDiffHash"] = r.NewDiffHash
+		if r.Item != nil {
+			payload["item"] = r.Item
+		}
+	}
+	return marshalEnvelope("sophosfw.v1.firewallRulePush", payload)
+}
+
 // marshalEnvelope is the shared writer used by all envelope helpers. It
 // produces the same indent-2 JSON that WriteJSON does, with the schema
 // embedded as the first field.
