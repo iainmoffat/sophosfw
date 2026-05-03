@@ -259,6 +259,10 @@ func (s *FirewallRuleSvc) Diff(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
+	if d.Operation == "create" {
+		return nil, fmt.Errorf("%w: this is a draft for a new rule; no snapshot exists until first successful push", sophos.ErrInvalidRequest)
+	}
+
 	snaps, err := draft.ListSnapshots(s.BaseDir, name, "firewall", ruleName)
 	if err != nil {
 		return nil, err
@@ -427,6 +431,15 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 		return nil, err
 	}
 
+	// Determine operation from draft header; default to "update" for legacy drafts.
+	operation := d.Operation
+	if operation == "" {
+		operation = "update"
+	}
+	if operation == "create" {
+		entryAudit.Operation = "firewall_rule_create"
+	}
+
 	// 4. Read-only profile.
 	if profile.ReadOnly {
 		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
@@ -438,19 +451,26 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 		return nil, fmt.Errorf("%w: FirewallRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
 	}
 
-	// 6. Refetch live + diff hash check (unless ignored).
-	if !ignoreHash {
-		live, err := s.Get(ctx, profileName, ruleName)
-		if err != nil {
-			return nil, err
+	// 6. Dispatch on operation for diff-hash check.
+	switch operation {
+	case "update":
+		if !ignoreHash {
+			live, err := s.Get(ctx, profileName, ruleName)
+			if err != nil {
+				return nil, err
+			}
+			liveHash, err := DiffHash(live)
+			if err != nil {
+				return nil, err
+			}
+			if liveHash != d.DiffHash {
+				return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, d.DiffHash)
+			}
 		}
-		liveHash, err := DiffHash(live)
-		if err != nil {
-			return nil, err
-		}
-		if liveHash != d.DiffHash {
-			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, d.DiffHash)
-		}
+	case "create":
+		// No diff-hash check — there is no live state.
+	default:
+		return nil, fmt.Errorf("%w: invalid header operation %q", sophos.ErrInvalidRequest, operation)
 	}
 
 	// 7. Build envelope.
@@ -462,7 +482,11 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	if err != nil {
 		return nil, err
 	}
-	full, err := sophos.BuildSetEnvelope("update", inner, c.Username, c.Password)
+	sophosOp := "update"
+	if operation == "create" {
+		sophosOp = "add"
+	}
+	full, err := sophos.BuildSetEnvelope(sophosOp, inner, c.Username, c.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +509,7 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 		return &FirewallRulePushResult{
 			Profile:   name,
 			Rule:      ruleName,
-			Operation: "update",
+			Operation: operation,
 			DryRun:    true,
 			Preview:   pv,
 		}, nil
@@ -518,21 +542,28 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 			yamlBytes, merr := marshalCanonicalYAML(refetched)
 			if merr == nil {
 				_ = draft.WriteDraft(snapPath, &draft.Draft{
-					Profile: name, Rule: ruleName, PulledAt: now, DiffHash: newHash, Body: yamlBytes,
+					Profile:   name,
+					Rule:      ruleName,
+					Operation: "update", // snapshot represents committed state
+					PulledAt:  now,
+					DiffHash:  newHash,
+					Body:      yamlBytes,
 				})
 				_ = draft.RotateSnapshots(s.BaseDir, name, "firewall", ruleName, 10)
 			}
 		}
-		// Update draft header diffHash (keep the user's body edits) so the
-		// next push validates against the post-push state.
+		// Flip the working draft to update mode (no-op if already update) and
+		// update diffHash so the next push validates against the post-push state.
+		d.Operation = "update"
 		d.DiffHash = newHash
+		d.PulledAt = now
 		_ = draft.WriteDraft(draftPath, d)
 	}
 
 	return &FirewallRulePushResult{
 		Profile:     name,
 		Rule:        ruleName,
-		Operation:   "update",
+		Operation:   operation,
 		DryRun:      false,
 		NewDiffHash: newHash,
 		Item:        refetched,

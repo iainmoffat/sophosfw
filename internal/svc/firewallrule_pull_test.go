@@ -534,3 +534,111 @@ func TestMarshalFirewallRule_NumericTypes(t *testing.T) {
 	require.Contains(t, s, "<Float64>5.5</Float64>")
 	require.Contains(t, s, "<BoolVal>true</BoolVal>")
 }
+
+func TestFirewallRuleSvc_Push_CreateOperation_SendsAdd(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	out, err := svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "create", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="add">`)
+	require.Contains(t, string(fc.sent[0]), `<FirewallRule>`)
+	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+}
+
+func TestFirewallRuleSvc_Push_CreateOperation_SkipsDiffHashCheck(t *testing.T) {
+	// Even if the live body would yield a different hash, push still
+	// succeeds because diff-hash check is skipped for create drafts.
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	// Mutate the fake live body — would normally cause hash mismatch.
+	fc.body = map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+
+	out, err := svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.Equal(t, "create", out.Operation)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestFirewallRuleSvc_Push_CreateOperation_FlipsDraftHeader(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, body)
+	pull, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	d1, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	require.Equal(t, "create", d1.Operation)
+	require.Empty(t, d1.DiffHash)
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+
+	d2, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	require.Equal(t, "update", d2.Operation)
+	require.NotEmpty(t, d2.DiffHash)
+	require.Regexp(t, `^[a-f0-9]{64}$`, d2.DiffHash)
+}
+
+func TestFirewallRuleSvc_Push_CreateOperation_WritesFirstSnapshot(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, baseDir := newFwRuleSvc(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	snaps0, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
+	require.NoError(t, err)
+	require.Empty(t, snaps0)
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+
+	snaps1, err := draft.ListSnapshots(baseDir, "home", "firewall", "X")
+	require.NoError(t, err)
+	require.Len(t, snaps1, 1)
+}
+
+func TestFirewallRuleSvc_Push_CreateOperation_AuditTagsCreate(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, _, _ := newFwRuleSvc(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"firewall_rule_create"`)
+}
+
+func TestFirewallRuleSvc_Diff_CreateDraft_Errors(t *testing.T) {
+	svc, _, _ := newFwRuleSvc(t, nil)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	_, err = svc.Diff(context.Background(), "home", "X")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Contains(t, err.Error(), "no snapshot")
+}
