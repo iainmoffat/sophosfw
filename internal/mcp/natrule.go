@@ -25,7 +25,7 @@ func (s *Server) registerNATRule() {
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "List NAT rules"},
 	}, s.handleNATRuleList)
 	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
-		Name: "nat_rule_show", Description: "Show one NAT rule by name. Returns sophosfw.v1.natRule envelope.",
+		Name: "nat_rule_show", Description: "Get one NATRule by name. Response always includes _diffHash, which nat_rule_update and nat_rule_delete require as expectedDiffHash.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "Show NAT rule"},
 	}, s.handleNATRuleShow)
 }
@@ -60,6 +60,15 @@ func (s *Server) handleNATRuleShow(ctx context.Context, _ *sdkmcp.CallToolReques
 	rule, err := s.natRuleSvc().Get(ctx, profile, in.Name)
 	if err != nil {
 		return s.errorEnvelopeResult(err, profile)
+	}
+	// Phase 10: include _diffHash in show response so agents can use it
+	// for nat_rule_update / nat_rule_delete.
+	if rule != nil {
+		hash, hashErr := svc.DiffHash(rule)
+		if hashErr != nil {
+			return s.errorEnvelopeResult(hashErr, profile)
+		}
+		rule["_diffHash"] = hash
 	}
 	body, err := render.NATRuleEnvelope(rule)
 	if err != nil {

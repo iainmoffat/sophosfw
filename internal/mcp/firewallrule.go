@@ -25,7 +25,7 @@ func (s *Server) registerFirewallRule() {
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "List firewall rules"},
 	}, s.handleFirewallRuleList)
 	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
-		Name: "firewall_rule_show", Description: "Show one firewall rule by name. Returns sophosfw.v1.firewallRule envelope.",
+		Name: "firewall_rule_show", Description: "Get one FirewallRule by name. Response always includes _diffHash, which firewall_rule_update and firewall_rule_delete require as expectedDiffHash.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "Show firewall rule"},
 	}, s.handleFirewallRuleShow)
 }
@@ -60,6 +60,15 @@ func (s *Server) handleFirewallRuleShow(ctx context.Context, _ *sdkmcp.CallToolR
 	rule, err := s.firewallRuleSvc().Get(ctx, profile, in.Name)
 	if err != nil {
 		return s.errorEnvelopeResult(err, profile)
+	}
+	// Phase 10: include _diffHash in show response so agents can use it
+	// for firewall_rule_update / firewall_rule_delete.
+	if rule != nil {
+		hash, hashErr := svc.DiffHash(rule)
+		if hashErr != nil {
+			return s.errorEnvelopeResult(hashErr, profile)
+		}
+		rule["_diffHash"] = hash
 	}
 	body, err := render.FirewallRuleEnvelope(rule)
 	if err != nil {

@@ -68,3 +68,13 @@ func TestFirewallRuleShow_Handler(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, textOf(out), `"schema": "sophosfw.v1.firewallRule"`)
 }
+
+func TestFirewallRuleShow_Handler_IncludesDiffHash(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"FirewallRule": {json.RawMessage(`{"Name":"X","Status":"Enable","IPFamily":"IPv4","PolicyType":"Network"}`)},
+	}
+	s := newFwTestServer(t, body)
+	out, _, err := s.handleFirewallRuleShow(context.Background(), nil, FirewallRuleShowInput{Name: "X"})
+	require.NoError(t, err)
+	require.Contains(t, textOf(out), `"_diffHash":`)
+}

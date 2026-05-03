@@ -68,3 +68,13 @@ func TestNATRuleShow_Handler(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, textOf(out), `"schema": "sophosfw.v1.natRule"`)
 }
+
+func TestNATRuleShow_Handler_IncludesDiffHash(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"NATRule": {json.RawMessage(`{"Name":"X","Status":"Enable","IPFamily":"IPv4"}`)},
+	}
+	s := newNatTestServer(t, body)
+	out, _, err := s.handleNATRuleShow(context.Background(), nil, NATRuleShowInput{Name: "X"})
+	require.NoError(t, err)
+	require.Contains(t, textOf(out), `"_diffHash":`)
+}
