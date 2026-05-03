@@ -274,8 +274,9 @@ func (s *FirewallRuleSvc) Diff(ctx context.Context, profileName, ruleName string
 	}
 
 	out := &FirewallRuleDiffResult{
-		Profile: name,
-		Rule:    ruleName,
+		Profile:        name,
+		Rule:           ruleName,
+		StructuredDiff: []DiffEntry{},
 	}
 	out.UnifiedDiff = draft.UnifiedDiff(snapBody, d.Body, "snapshot", "draft")
 	out.HasChanges = out.UnifiedDiff != ""
