@@ -1,31 +1,43 @@
 # sophosfw
 
+[![CI](https://github.com/iainmoffat/sophosfw/actions/workflows/ci.yml/badge.svg)](https://github.com/iainmoffat/sophosfw/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/iainmoffat/sophosfw)](https://github.com/iainmoffat/sophosfw/releases/latest)
+[![License](https://img.shields.io/github/license/iainmoffat/sophosfw)](LICENSE)
+
 Go CLI + MCP server for the Sophos Firewall XML API. Production-safe
-read-only inspection by default; mutating workflows arrive in later phases.
+read-only inspection by default, with mutating workflows for IPHosts,
+firewall rules, and NAT rules behind explicit confirm gates.
 
 ## Status
 
-**Foundation phase** (Phases 0-2 of the roadmap):
-- Profile-based config with macOS Keychain (file fallback) credential storage
-- Sophos XML API client with login injection and credential redaction
-- Hybrid object catalog (12 tags; typed parsers for IPHost and Services)
-- Generic `object list/get/usage/schema` and `raw get/request --dry-run`
-- `mcp serve` scaffold (zero tools registered; Phase 4 lands the tool surface)
-- Three-layer read-only safety enforcement
-- Stable `sophosfw.v1.*` JSON envelope contract
-
-See `docs/roadmap.md` for what's coming.
+Phases 0-10 complete (foundation through MCP-native firewall + NAT rule
+mutations). The MCP server registers 30 tools; the CLI covers
+inspection, drafts, dry-run preview, and apply for the supported
+object types. See `docs/roadmap.md` and `docs/api-coverage.md` for the
+exact surface.
 
 ## Install
 
+**Homebrew** (macOS / Linux):
+
 ```bash
-git clone https://github.com/iainmoffat/sophosfw   # not yet published
+brew install iainmoffat/sophosfw/sophosfw
+```
+
+This installs the binary plus shell completions for bash, zsh, and fish.
+
+**From source:**
+
+```bash
+git clone https://github.com/iainmoffat/sophosfw
 cd sophosfw
 make build
 ./bin/sophosfw version
 ```
 
-Or `make install` to copy to `$GOBIN`.
+Or `make install` to copy to `$GOBIN`. For shell completion when
+installed from source, run `sophosfw completion <shell>` and source
+the output (`sophosfw completion --help` shows per-shell instructions).
 
 ## Quick start
 
