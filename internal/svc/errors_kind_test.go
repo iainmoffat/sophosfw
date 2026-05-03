@@ -46,3 +46,11 @@ func TestErrorKind_Generic(t *testing.T) {
 func TestErrorKind_Nil(t *testing.T) {
 	require.Equal(t, "", ErrorKind(nil))
 }
+
+func TestErrorKind_DraftMissing(t *testing.T) {
+	require.Equal(t, "not_found", ErrorKind(ErrDraftMissing))
+}
+
+func TestErrorKind_SnapshotMissing(t *testing.T) {
+	require.Equal(t, "not_found", ErrorKind(ErrSnapshotMissing))
+}
