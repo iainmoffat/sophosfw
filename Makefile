@@ -4,7 +4,7 @@ PKG   := ./...
 BIN   := bin/sophosfw
 LDFLAGS := -X main.version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: fmt vet lint test test-int build install skill-doctor clean
+.PHONY: fmt vet lint test test-int build install completions skill-doctor clean
 
 fmt:
 	$(GO) fmt $(PKG)
@@ -31,6 +31,12 @@ install: build
 
 skill-doctor: build
 	$(BIN) skill doctor
+
+completions: build
+	mkdir -p completions
+	$(BIN) completion bash > completions/sophosfw.bash
+	$(BIN) completion zsh > completions/sophosfw.zsh
+	$(BIN) completion fish > completions/sophosfw.fish
 
 clean:
 	rm -rf bin dist coverage.txt

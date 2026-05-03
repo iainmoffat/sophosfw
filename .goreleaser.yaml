@@ -1,5 +1,10 @@
 version: 2
 
+before:
+  hooks:
+    - go mod tidy
+    - bash -c 'mkdir -p completions && go run ./cmd/sophosfw completion bash > completions/sophosfw.bash && go run ./cmd/sophosfw completion zsh > completions/sophosfw.zsh && go run ./cmd/sophosfw completion fish > completions/sophosfw.fish'
+
 builds:
   - main: ./cmd/sophosfw
     binary: sophosfw
@@ -17,6 +22,9 @@ builds:
 archives:
   - formats: [tar.gz]
     name_template: "sophosfw_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - completions/*
 
 brews:
   - repository:
@@ -25,8 +33,12 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/iainmoffat/sophosfw
     description: CLI and MCP server for the Sophos Firewall API
+    license: MIT
     install: |
       bin.install "sophosfw"
+      bash_completion.install "completions/sophosfw.bash" => "sophosfw"
+      zsh_completion.install "completions/sophosfw.zsh" => "_sophosfw"
+      fish_completion.install "completions/sophosfw.fish"
 
 checksum:
   name_template: checksums.txt
