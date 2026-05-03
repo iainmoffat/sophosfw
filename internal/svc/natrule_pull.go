@@ -134,6 +134,10 @@ func (s *NATRuleSvc) Diff(ctx context.Context, profileName, ruleName string) (*N
 		return nil, err
 	}
 
+	if d.Operation == "create" {
+		return nil, fmt.Errorf("%w: this is a draft for a new rule; no snapshot exists until first successful push", sophos.ErrInvalidRequest)
+	}
+
 	snaps, err := draft.ListSnapshots(s.BaseDir, name, "nat", ruleName)
 	if err != nil {
 		return nil, err
@@ -269,6 +273,16 @@ func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ign
 		return nil, perr
 	}
 
+	// Determine operation from draft header; default to "update" for legacy drafts.
+	operation := d.Operation
+	if operation == "" {
+		operation = "update"
+	}
+	if operation == "create" {
+		entryAudit.Operation = "nat_rule_create"
+	}
+
+	// 4. Read-only profile.
 	if profile.ReadOnly {
 		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
 	}
@@ -283,18 +297,26 @@ func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ign
 		entryAudit.ExpectedDiffHash = "ignored"
 	}
 
-	if !ignoreHash {
-		live, perr := s.Get(ctx, profileName, ruleName)
-		if perr != nil {
-			return nil, perr
+	// 6. Dispatch on operation for diff-hash check.
+	switch operation {
+	case "update":
+		if !ignoreHash {
+			live, perr := s.Get(ctx, profileName, ruleName)
+			if perr != nil {
+				return nil, perr
+			}
+			liveHash, perr := DiffHash(live)
+			if perr != nil {
+				return nil, perr
+			}
+			if liveHash != d.DiffHash {
+				return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, d.DiffHash)
+			}
 		}
-		liveHash, perr := DiffHash(live)
-		if perr != nil {
-			return nil, perr
-		}
-		if liveHash != d.DiffHash {
-			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, d.DiffHash)
-		}
+	case "create":
+		// No diff-hash check — there is no live state.
+	default:
+		return nil, fmt.Errorf("%w: invalid header operation %q", sophos.ErrInvalidRequest, operation)
 	}
 
 	c, perr := s.Inner.Creds.Load(name)
@@ -305,7 +327,11 @@ func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ign
 	if perr != nil {
 		return nil, perr
 	}
-	full, perr := sophos.BuildSetEnvelope("update", inner, c.Username, c.Password)
+	sophosOp := "update"
+	if operation == "create" {
+		sophosOp = "add"
+	}
+	full, perr := sophos.BuildSetEnvelope(sophosOp, inner, c.Username, c.Password)
 	if perr != nil {
 		return nil, perr
 	}
@@ -325,7 +351,7 @@ func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ign
 		return &NATRulePushResult{
 			Profile:   name,
 			Rule:      ruleName,
-			Operation: "update",
+			Operation: operation,
 			DryRun:    true,
 			Preview:   pv,
 		}, nil
@@ -356,19 +382,28 @@ func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ign
 			yamlBytes, merr := marshalCanonicalYAML(refetched)
 			if merr == nil {
 				_ = draft.WriteDraft(snapPath, &draft.Draft{
-					Profile: name, Rule: ruleName, PulledAt: now, DiffHash: newHash, Body: yamlBytes,
+					Profile:   name,
+					Rule:      ruleName,
+					Operation: "update", // snapshot represents committed state
+					PulledAt:  now,
+					DiffHash:  newHash,
+					Body:      yamlBytes,
 				})
 				_ = draft.RotateSnapshots(s.BaseDir, name, "nat", ruleName, 10)
 			}
 		}
+		// Flip the working draft to update mode (no-op if already update) and
+		// update diffHash so the next push validates against the post-push state.
+		d.Operation = "update"
 		d.DiffHash = newHash
+		d.PulledAt = now
 		_ = draft.WriteDraft(draftPath, d)
 	}
 
 	return &NATRulePushResult{
 		Profile:     name,
 		Rule:        ruleName,
-		Operation:   "update",
+		Operation:   operation,
 		DryRun:      false,
 		NewDiffHash: newHash,
 		Item:        refetched,

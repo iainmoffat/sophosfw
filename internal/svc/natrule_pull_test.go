@@ -491,3 +491,102 @@ func TestNATRuleSvc_Delete_DiffHashMismatch_AuditsRejection(t *testing.T) {
 	require.Contains(t, string(logBody), `"operation":"nat_rule_delete"`)
 	require.Contains(t, string(logBody), `"result":"error:diff_hash_mismatch"`)
 }
+
+func TestNATRuleSvc_Push_CreateOperation_SendsAdd(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	out, err := svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "create", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="add">`)
+	require.Contains(t, string(fc.sent[0]), `<NATRule>`)
+}
+
+func TestNATRuleSvc_Push_CreateOperation_SkipsDiffHashCheck(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+	fc.body = map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	out, err := svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.Equal(t, "create", out.Operation)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestNATRuleSvc_Push_CreateOperation_FlipsDraftHeader(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, body)
+	pull, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+	d1, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	require.Equal(t, "create", d1.Operation)
+	require.Empty(t, d1.DiffHash)
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+
+	d2, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	require.Equal(t, "update", d2.Operation)
+	require.NotEmpty(t, d2.DiffHash)
+	require.Regexp(t, `^[a-f0-9]{64}$`, d2.DiffHash)
+}
+
+func TestNATRuleSvc_Push_CreateOperation_WritesFirstSnapshot(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, baseDir := newNATSvcPull(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+	snaps0, err := draft.ListSnapshots(baseDir, "home", "nat", "X")
+	require.NoError(t, err)
+	require.Empty(t, snaps0)
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	snaps1, err := draft.ListSnapshots(baseDir, "home", "nat", "X")
+	require.NoError(t, err)
+	require.Len(t, snaps1, 1)
+}
+
+func TestNATRuleSvc_Push_CreateOperation_AuditTagsCreate(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, body)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"nat_rule_create"`)
+}
+
+func TestNATRuleSvc_Diff_CreateDraft_Errors(t *testing.T) {
+	svc, _, _ := newNATSvcPull(t, nil)
+	_, err := svc.New(context.Background(), "home", "X", "")
+	require.NoError(t, err)
+
+	_, err = svc.Diff(context.Background(), "home", "X")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Contains(t, err.Error(), "no snapshot")
+}
