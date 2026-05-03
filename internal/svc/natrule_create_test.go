@@ -119,3 +119,74 @@ func TestNATRuleSvc_New_RuleNameWithSpecialChars(t *testing.T) {
 		})
 	}
 }
+
+func TestNATRuleSvc_CreateInline_DryRun(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+		"OriginalSourceNetworks":      map[string]any{"Network": "Any"},
+		"OriginalDestinationNetworks": map[string]any{"Network": "Any"},
+		"TranslatedSource":            "Original",
+		"TranslatedDestination":       "Original",
+	}
+	svc, fc, _ := newNATSvcPull(t, nil)
+	out, err := svc.CreateInline(context.Background(), "home", "X", body, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.Equal(t, "create", out.Operation)
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_CreateInline_Apply(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	out, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "create", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="add">`)
+	require.Contains(t, string(fc.sent[0]), `<NATRule>`)
+}
+
+func TestNATRuleSvc_CreateInline_RequiredFieldMissing_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable",
+		// IPFamily missing.
+	}
+	svc, fc, _ := newNATSvcPull(t, nil)
+	_, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Contains(t, err.Error(), "IPFamily")
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_CreateInline_ReadOnlyProfile_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, nil)
+	p, ok := svc.Inner.Config.Profiles["home"]
+	require.True(t, ok)
+	p.ReadOnly = true
+	svc.Inner.Config.Profiles["home"] = p
+
+	_, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrReadOnlyViolation))
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_CreateInline_AuditTagsCreate(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, body)
+	_, err := svc.CreateInline(context.Background(), "home", "X", body, false)
+	require.NoError(t, err)
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"nat_rule_create"`)
+}

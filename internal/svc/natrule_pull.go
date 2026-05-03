@@ -566,3 +566,146 @@ func (s *NATRuleSvc) Delete(ctx context.Context, profileName, ruleName, expected
 		DryRun:    false,
 	}, nil
 }
+
+// UpdateInline updates an existing NATRule from an in-memory body. See
+// FirewallRuleSvc.UpdateInline for shape; this is the NAT mirror.
+// Audit op: nat_rule_push.
+func (s *NATRuleSvc) UpdateInline(ctx context.Context, profileName, ruleName string, body map[string]any, expectedHash string, ignoreHash, dryRun bool) (out *NATRulePushResult, err error) {
+	profile, name, perr := s.Inner.Config.ActiveProfile(profileName)
+	if perr != nil {
+		return nil, perr
+	}
+
+	entryAudit := AuditEntry{
+		Profile:    name,
+		Operation:  "nat_rule_push",
+		ObjectType: "NATRule",
+		ObjectName: ruleName,
+	}
+	if expectedHash != "" {
+		entryAudit.ExpectedDiffHash = expectedHash
+	}
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	}
+	defer func() {
+		if err != nil && s.Audit != nil && entryAudit.Result == "" {
+			entryAudit.Result = "error:" + ErrorKind(err)
+			entryAudit.ErrorMessage = err.Error()
+			_ = s.Audit.Write(entryAudit)
+		}
+	}()
+
+	for _, k := range requiredNATRuleFields {
+		v, ok := body[k]
+		if !ok {
+			return nil, fmt.Errorf("%w: body missing required field %q", sophos.ErrInvalidRequest, k)
+		}
+		if str, isStr := v.(string); isStr && str == "" {
+			return nil, fmt.Errorf("%w: body field %q is empty", sophos.ErrInvalidRequest, k)
+		}
+	}
+
+	if profile.ReadOnly {
+		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
+	}
+
+	catEntry, ok := s.Inner.Catalog.Resolve("NATRule")
+	if !ok || !catEntry.Mutable {
+		return nil, fmt.Errorf("%w: NATRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
+	}
+
+	if !ignoreHash {
+		live, perr := s.Get(ctx, profileName, ruleName)
+		if perr != nil {
+			return nil, perr
+		}
+		liveHash, perr := DiffHash(live)
+		if perr != nil {
+			return nil, perr
+		}
+		if liveHash != expectedHash {
+			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, expectedHash)
+		}
+	}
+
+	c, perr := s.Inner.Creds.Load(name)
+	if perr != nil {
+		return nil, perr
+	}
+	inner, perr := marshalNATRule(body)
+	if perr != nil {
+		return nil, perr
+	}
+	full, perr := sophos.BuildSetEnvelope("update", inner, c.Username, c.Password)
+	if perr != nil {
+		return nil, perr
+	}
+	entryAudit.RedactedXML = string(safety.RedactXML(full))
+
+	if dryRun {
+		mutating, verbs := safety.IsMutating(full)
+		pv := &Preview{
+			Profile:        name,
+			Mutating:       mutating,
+			Verbs:          verbs,
+			RedactedXML:    entryAudit.RedactedXML,
+			WouldSendBytes: len(full),
+		}
+		entryAudit.Result = "ok (dry-run)"
+		_ = s.Audit.Write(entryAudit)
+		return &NATRulePushResult{
+			Profile:   name,
+			Rule:      ruleName,
+			Operation: "update",
+			DryRun:    true,
+			Preview:   pv,
+		}, nil
+	}
+
+	cl := s.Inner.NewClient(profile, c)
+	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
+		entryAudit.Result = "error:" + ErrorKind(sendErr)
+		entryAudit.ErrorMessage = sendErr.Error()
+		_ = s.Audit.Write(entryAudit)
+		return nil, sendErr
+	}
+	entryAudit.Result = "ok"
+	_ = s.Audit.Write(entryAudit)
+
+	refetched, _ := s.Get(ctx, profileName, ruleName)
+	newHash := ""
+	if refetched != nil {
+		nh, hashErr := DiffHash(refetched)
+		if hashErr == nil {
+			newHash = nh
+		}
+	}
+	if refetched != nil && newHash != "" {
+		now := s.now()
+		snapPath, perr := draft.SnapshotPath(s.BaseDir, name, "nat", ruleName, now)
+		if perr == nil {
+			yamlBytes, merr := marshalCanonicalYAML(refetched)
+			if merr == nil {
+				_ = draft.WriteDraft(snapPath, &draft.Draft{
+					Profile:   name,
+					Rule:      ruleName,
+					Operation: "update",
+					PulledAt:  now,
+					DiffHash:  newHash,
+					Body:      yamlBytes,
+				})
+				_ = draft.RotateSnapshots(s.BaseDir, name, "nat", ruleName, 10)
+			}
+		}
+	}
+
+	return &NATRulePushResult{
+		Profile:     name,
+		Rule:        ruleName,
+		Operation:   "update",
+		DryRun:      false,
+		NewDiffHash: newHash,
+		Item:        refetched,
+	}, nil
+}

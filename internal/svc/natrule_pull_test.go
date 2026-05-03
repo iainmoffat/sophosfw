@@ -590,3 +590,108 @@ func TestNATRuleSvc_Diff_CreateDraft_Errors(t *testing.T) {
 	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
 	require.Contains(t, err.Error(), "no snapshot")
 }
+
+func TestNATRuleSvc_UpdateInline_DryRun(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	out, err := svc.UpdateInline(context.Background(), "home", "X", body, hash, false, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.Equal(t, "update", out.Operation)
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_UpdateInline_Apply(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	out, err := svc.UpdateInline(context.Background(), "home", "X", body, hash, false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "update", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="update">`)
+	require.Contains(t, string(fc.sent[0]), `<NATRule>`)
+}
+
+func TestNATRuleSvc_UpdateInline_DiffHashMismatch_Rejects(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, live)
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	_, err := svc.UpdateInline(context.Background(), "home", "X", body,
+		"definitely-wrong-hash-0000000000000000000000000000000000000000",
+		false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_UpdateInline_IgnoreHash_Applies(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, live)
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	_, err := svc.UpdateInline(context.Background(), "home", "X", body, "", true, false)
+	require.NoError(t, err)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestNATRuleSvc_UpdateInline_RequiredFieldMissing_Rejects(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable",
+		// IPFamily missing.
+	}
+	_, err = svc.UpdateInline(context.Background(), "home", "X", body, hash, false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Contains(t, err.Error(), "IPFamily")
+	require.Empty(t, fc.sent)
+}
+
+func TestNATRuleSvc_UpdateInline_AuditTagsPush(t *testing.T) {
+	live := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, _, _ := newNATSvcPull(t, live)
+	hash, err := DiffHash(live)
+	require.NoError(t, err)
+
+	body := map[string]any{
+		"Name": "X", "Status": "Disable", "IPFamily": "IPv4",
+	}
+	_, err = svc.UpdateInline(context.Background(), "home", "X", body, hash, false, false)
+	require.NoError(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"nat_rule_push"`)
+}
