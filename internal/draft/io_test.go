@@ -120,3 +120,14 @@ func TestReadDraft_HeaderKey_CaseInsensitive(t *testing.T) {
 	require.Equal(t, "home", d.Profile)
 	require.Equal(t, "X", d.Rule)
 }
+
+func TestReadDraft_NormalizesCRLF(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crlf.yaml")
+	body := "# profile: home\r\n# rule: X\r\n# pulledAt: 2026-05-02T15:30:00Z\r\n# diffHash: 8b3bc27fc63cb9792cbb563949ae2279abe2b016fe9ca00e901973e69f2e6f50\r\n---\r\nName: X\r\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	d, err := ReadDraft(path)
+	require.NoError(t, err)
+	require.Equal(t, "X", d.Rule)
+	require.Contains(t, string(d.Body), "Name: X")
+}

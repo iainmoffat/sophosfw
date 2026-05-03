@@ -506,3 +506,31 @@ func TestFirewallRuleSvc_Delete_DiffHashMismatch_Rejects(t *testing.T) {
 	require.True(t, errors.Is(err, ErrDiffHashMismatch))
 	require.Empty(t, fc.sent)
 }
+
+// TestMarshalFirewallRule_NumericTypes covers the full numeric type
+// coverage of writeKeyValue. Sophos rule bodies are normally string-typed
+// in JSON, but a future caller could pass typed numeric values and we
+// shouldn't error.
+func TestMarshalFirewallRule_NumericTypes(t *testing.T) {
+	rule := map[string]any{
+		"Name":      "X",
+		"IntVal":    int(42),
+		"Int32Val":  int32(43),
+		"Int64Val":  int64(44),
+		"UintVal":   uint(45),
+		"Uint32Val": uint32(46),
+		"Uint64Val": uint64(47),
+		"Float32":   float32(4.5),
+		"Float64":   float64(5.5),
+		"BoolVal":   true,
+	}
+	out, err := marshalFirewallRule(rule)
+	require.NoError(t, err)
+	s := string(out)
+	require.Contains(t, s, "<IntVal>42</IntVal>")
+	require.Contains(t, s, "<Int64Val>44</Int64Val>")
+	require.Contains(t, s, "<UintVal>45</UintVal>")
+	require.Contains(t, s, "<Uint64Val>47</Uint64Val>")
+	require.Contains(t, s, "<Float64>5.5</Float64>")
+	require.Contains(t, s, "<BoolVal>true</BoolVal>")
+}

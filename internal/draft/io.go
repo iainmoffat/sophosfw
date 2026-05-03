@@ -43,6 +43,10 @@ func ReadDraft(path string) (*Draft, error) {
 		}
 		return nil, err
 	}
+	// Normalize CRLF → LF so files edited on Windows or transferred via
+	// tools that injected CRLF still parse. The body-split below uses LF
+	// directly.
+	b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
 	d := &Draft{}
 	headerEnd := -1
 	for i, line := range strings.Split(string(b), "\n") {

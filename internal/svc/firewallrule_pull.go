@@ -615,7 +615,7 @@ func writeKeyValue(buf *bytes.Buffer, key string, val any) error {
 		writeOpen(buf, key)
 		fmt.Fprintf(buf, "%t", v)
 		writeClose(buf, key)
-	case int, int64, float64:
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		writeOpen(buf, key)
 		fmt.Fprintf(buf, "%v", v)
 		writeClose(buf, key)
