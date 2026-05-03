@@ -162,3 +162,52 @@ func TestFirewallRulePushEnvelope_Apply(t *testing.T) {
 	require.Contains(t, string(b), `"newDiffHash": "def456"`)
 	require.Contains(t, string(b), `"item":`)
 }
+
+func TestNATRulePullEnvelope_Schema(t *testing.T) {
+	r := &svc.NATRulePullResult{
+		Profile: "home", Rule: "X", DraftPath: "/p/d.yaml",
+		SnapshotPath: "/p/s.yaml", DiffHash: "abc",
+		References: []svc.ReferenceSummary{{Type: "IPHost", Names: []string{"LAN"}}},
+	}
+	b, err := NATRulePullEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"schema": "sophosfw.v1.natRulePull"`)
+	require.Contains(t, string(b), `"diffHash": "abc"`)
+}
+
+func TestNATRuleDiffEnvelope_Schema(t *testing.T) {
+	r := &svc.NATRuleDiffResult{
+		Profile: "home", Rule: "X",
+		HasChanges: true, UnifiedDiff: "...",
+		StructuredDiff: []svc.DiffEntry{{Path: "Status", Op: "changed", OldValue: "Enable", NewValue: "Disable"}},
+	}
+	b, err := NATRuleDiffEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"schema": "sophosfw.v1.natRuleDiff"`)
+	require.Contains(t, string(b), `"hasChanges": true`)
+	require.Contains(t, string(b), `"path": "Status"`)
+}
+
+func TestNATRulePushEnvelope_DryRun(t *testing.T) {
+	r := &svc.NATRulePushResult{
+		Profile: "home", Rule: "X", Operation: "update", DryRun: true,
+		Preview: &svc.Preview{Mutating: true, Verbs: []string{"Set:update"}},
+	}
+	b, err := NATRulePushEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"schema": "sophosfw.v1.natRulePush"`)
+	require.Contains(t, string(b), `"applied": false`)
+	require.Contains(t, string(b), `"dryRun": true`)
+}
+
+func TestNATRulePushEnvelope_Apply(t *testing.T) {
+	r := &svc.NATRulePushResult{
+		Profile: "home", Rule: "X", Operation: "update", DryRun: false,
+		NewDiffHash: "def", Item: map[string]any{"Name": "X"},
+	}
+	b, err := NATRulePushEnvelope(r)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"applied": true`)
+	require.Contains(t, string(b), `"newDiffHash": "def"`)
+	require.Contains(t, string(b), `"item":`)
+}
