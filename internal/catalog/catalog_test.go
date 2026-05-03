@@ -65,7 +65,7 @@ func TestCatalog_IPHostMutable(t *testing.T) {
 func TestCatalog_OtherEntriesNotMutable(t *testing.T) {
 	c, err := NewDefault()
 	require.NoError(t, err)
-	for _, tag := range []string{"FQDNHost", "MACHost", "Zone", "NATRule", "Services"} {
+	for _, tag := range []string{"FQDNHost", "MACHost", "Zone", "Services"} {
 		entry, ok := c.Resolve(tag)
 		require.True(t, ok, "tag %q should exist", tag)
 		require.False(t, entry.Mutable, "tag %q must NOT be mutable in Phase 7", tag)
@@ -76,6 +76,14 @@ func TestCatalog_FirewallRuleIsMutable(t *testing.T) {
 	c, err := NewDefault()
 	require.NoError(t, err)
 	entry, ok := c.Resolve("FirewallRule")
+	require.True(t, ok)
+	require.True(t, entry.Mutable)
+}
+
+func TestCatalog_NATRuleIsMutable(t *testing.T) {
+	c, err := NewDefault()
+	require.NoError(t, err)
+	entry, ok := c.Resolve("NATRule")
 	require.True(t, ok)
 	require.True(t, entry.Mutable)
 }
