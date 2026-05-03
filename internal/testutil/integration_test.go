@@ -41,10 +41,11 @@ func newClient(t *testing.T) *IntegrationClient {
 	t.Helper()
 	p, c := loadProfile(t)
 	inner := sophos.NewClient(sophos.ClientConfig{
-		BaseURL:  p.URL,
-		Username: c.Username,
-		Password: c.Password,
-		Timeout:  15 * time.Second,
+		BaseURL:            p.URL,
+		Username:           c.Username,
+		Password:           c.Password,
+		Timeout:            15 * time.Second,
+		InsecureSkipVerify: p.InsecureSkipVerify,
 	})
 	return NewIntegrationClient(inner)
 }
