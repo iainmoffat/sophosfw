@@ -50,7 +50,7 @@ func (s *NATRuleSvc) Pull(ctx context.Context, profileName, ruleName string) (*N
 	if err != nil {
 		return nil, err
 	}
-	now := s.natNow()
+	now := s.now()
 	snapPath, err := draft.SnapshotPath(s.BaseDir, name, "nat", ruleName, now)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (s *NATRuleSvc) Pull(ctx context.Context, profileName, ruleName string) (*N
 	}, nil
 }
 
-func (s *NATRuleSvc) natNow() time.Time {
+func (s *NATRuleSvc) now() time.Time {
 	if s.Now != nil {
 		return s.Now().UTC()
 	}
