@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
@@ -23,7 +24,10 @@ type FirewallRuleList struct {
 // surface. It calls Inner.List/Get and converts each `any` item to
 // `map[string]any` for caller convenience.
 type FirewallRuleSvc struct {
-	Inner *ObjectSvc
+	Inner   *ObjectSvc
+	Audit   *AuditLog
+	BaseDir string
+	Now     func() time.Time // injectable for tests; defaults to time.Now()
 }
 
 // List returns FirewallRule records as plain maps.

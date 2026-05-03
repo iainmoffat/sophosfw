@@ -39,6 +39,9 @@ func NewAuditLog(baseDir string, enabled bool) *AuditLog {
 	}
 }
 
+// Dir returns the directory that contains the audit.log file.
+func (a *AuditLog) Dir() string { return filepath.Dir(a.path) }
+
 func (a *AuditLog) Write(entry AuditEntry) error {
 	if a == nil || !a.enabled {
 		return nil
