@@ -406,3 +406,23 @@ func TestNATRuleSvc_Diff_MissingSnapshot(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, draft.ErrSnapshotMissing))
 }
+
+func TestNATRuleSvc_Push_RejectsMaliciousKeyInBody(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	// Inject a key with spaces (invalid XML element name).
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = append(d.Body, []byte(`"name with spaces": "x"`+"\n")...)
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
+	require.Empty(t, fc.sent, "must not send envelope when XML tag is invalid")
+}
