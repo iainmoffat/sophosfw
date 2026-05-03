@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/iainmoffat/sophosfw/internal/draft"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
@@ -11,8 +12,6 @@ import (
 var (
 	ErrDiffHashMismatch = errors.New("diff hash mismatch: object has changed since you last read it")
 	ErrDiffHashRequired = errors.New("expectedDiffHash is required for update/delete")
-	ErrDraftMissing     = errors.New("firewall rule draft not found; run `sophosfw firewall rule pull <name>` first")
-	ErrSnapshotMissing  = errors.New("firewall rule snapshot not found for this draft; re-run `sophosfw firewall rule pull <name>`")
 )
 
 // ErrorKind classifies an error into one of the stable kind tags used by
@@ -47,9 +46,9 @@ func ErrorKind(err error) string {
 		return "diff_hash_mismatch"
 	case errors.Is(err, ErrDiffHashRequired):
 		return "invalid_request"
-	case errors.Is(err, ErrDraftMissing):
+	case errors.Is(err, draft.ErrDraftMissing):
 		return "not_found"
-	case errors.Is(err, ErrSnapshotMissing):
+	case errors.Is(err, draft.ErrSnapshotMissing):
 		return "not_found"
 	}
 	if isTLSError(err) {

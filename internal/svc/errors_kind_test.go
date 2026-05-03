@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/iainmoffat/sophosfw/internal/draft"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 	"github.com/stretchr/testify/require"
 )
@@ -48,9 +49,9 @@ func TestErrorKind_Nil(t *testing.T) {
 }
 
 func TestErrorKind_DraftMissing(t *testing.T) {
-	require.Equal(t, "not_found", ErrorKind(ErrDraftMissing))
+	require.Equal(t, "not_found", ErrorKind(draft.ErrDraftMissing))
 }
 
 func TestErrorKind_SnapshotMissing(t *testing.T) {
-	require.Equal(t, "not_found", ErrorKind(ErrSnapshotMissing))
+	require.Equal(t, "not_found", ErrorKind(draft.ErrSnapshotMissing))
 }
