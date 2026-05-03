@@ -21,6 +21,10 @@ func newNATRuleCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.AddCommand(
 		newNATRuleListCmd(d, cat),
 		newNATRuleShowCmd(d, cat),
+		newNATRulePullCmd(d, cat),
+		newNATRuleDiffCmd(d, cat),
+		newNATRulePushCmd(d, cat),
+		newNATRuleDeleteCmd(d, cat),
 	)
 	return cmd
 }

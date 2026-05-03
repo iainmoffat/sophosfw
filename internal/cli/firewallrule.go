@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
+	"github.com/iainmoffat/sophosfw/internal/draft"
 	"github.com/iainmoffat/sophosfw/internal/render"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 	"github.com/iainmoffat/sophosfw/internal/svc"
@@ -31,6 +32,9 @@ func newFirewallRuleCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 }
 
 func firewallRuleSvc(d RootDeps, cat *catalog.Catalog) *svc.FirewallRuleSvc {
+	if _, pname, err := d.Config.ActiveProfile(""); err == nil {
+		_ = draft.MigrateLegacyLayout(d.BaseDir, pname)
+	}
 	return &svc.FirewallRuleSvc{
 		Inner: &svc.ObjectSvc{
 			Config: d.Config, Creds: d.Creds, Catalog: cat, NewClient: d.NewClient,
