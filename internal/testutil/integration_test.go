@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -425,4 +426,116 @@ func TestIntegration_NATRuleNew_FromTemplate_DryRun(t *testing.T) {
 	require.NotNil(t, pushOut.Preview)
 	require.True(t, pushOut.Preview.Mutating)
 	require.Contains(t, pushOut.Preview.RedactedXML, `<Set operation="add">`)
+}
+
+func TestIntegration_MCPFirewallRuleShow_HasDiffHash(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_RULE to a real rule on the testvm")
+	}
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config:         cfg,
+		Creds:          store,
+		Catalog:        cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profileName,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "firewall_rule_show",
+		Arguments: map[string]any{"name": ruleName},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	tc, ok := result.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+	require.Contains(t, tc.Text, `"_diffHash":`)
+}
+
+func TestIntegration_MCPFirewallRuleUpdate_DryRun(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_RULE")
+	}
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config: cfg, Creds: store, Catalog: cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profileName,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	// Step 1: show, capture diffHash.
+	showResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      "firewall_rule_show",
+		Arguments: map[string]any{"name": ruleName},
+	})
+	require.NoError(t, err)
+	tc := showResult.Content[0].(*sdkmcp.TextContent)
+	var showBody map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &showBody))
+	hash, _ := showBody["_diffHash"].(string)
+	require.NotEmpty(t, hash)
+	delete(showBody, "_diffHash")
+	delete(showBody, "schema")
+
+	// Step 2: update dry-run with the same body.
+	updateResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "firewall_rule_update",
+		Arguments: map[string]any{
+			"name":             ruleName,
+			"body":             showBody,
+			"expectedDiffHash": hash,
+			"confirm":          true,
+			"dryRun":           true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, updateResult.IsError)
+	tcUpdate := updateResult.Content[0].(*sdkmcp.TextContent)
+	require.Contains(t, tcUpdate.Text, `"schema": "sophosfw.v1.preview"`)
 }
