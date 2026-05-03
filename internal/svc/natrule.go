@@ -2,6 +2,7 @@ package svc
 
 import (
 	"context"
+	"time"
 
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
@@ -16,8 +17,12 @@ type NATRuleList struct {
 }
 
 // NATRuleSvc serves the typed `nat rule` first-class command surface.
+// Audit, BaseDir, and Now are required for Pull (Phase 8).
 type NATRuleSvc struct {
-	Inner *ObjectSvc
+	Inner   *ObjectSvc
+	Audit   *AuditLog
+	BaseDir string
+	Now     func() time.Time // injectable for tests; defaults to time.Now()
 }
 
 // List returns NATRule records as plain maps.
