@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Response is the parsed shape of a Sophos `<Response>` envelope.
@@ -93,7 +94,7 @@ func ParseResponse(b []byte) (*Response, error) {
 			depth--
 
 			if inLogin && t.Name.Local == "Login" {
-				r.LoginStatus = loginSb.String()
+				r.LoginStatus = strings.TrimSpace(loginSb.String())
 				r.LoginOK = r.LoginStatus == "Authentication Successful"
 				inLogin = false
 				continue

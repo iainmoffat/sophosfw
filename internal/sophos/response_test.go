@@ -41,3 +41,14 @@ func TestParseResponse_MalformedXML(t *testing.T) {
 	_, err := ParseResponse([]byte("<not xml"))
 	require.Error(t, err)
 }
+
+func TestParseResponse_LoginStatus_TrimsWhitespace(t *testing.T) {
+	// Real Sophos firewall responses wrap the status text in <Login><status>
+	// with whitespace around it. The parser must trim before comparing to
+	// "Authentication Successful".
+	body := []byte("<Response><Login>\n    <status>Authentication Successful</status>\n</Login></Response>")
+	r, err := ParseResponse(body)
+	require.NoError(t, err)
+	require.Equal(t, "Authentication Successful", r.LoginStatus)
+	require.True(t, r.LoginOK)
+}
