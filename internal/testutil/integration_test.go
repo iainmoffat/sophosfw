@@ -5,6 +5,7 @@ package testutil
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/config"
 	"github.com/iainmoffat/sophosfw/internal/creds"
+	"github.com/iainmoffat/sophosfw/internal/draft"
 	"github.com/iainmoffat/sophosfw/internal/mcp"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 	"github.com/iainmoffat/sophosfw/internal/svc"
@@ -193,4 +195,124 @@ func TestIntegration_HostIPCreate_DryRun(t *testing.T) {
 	require.NotNil(t, result.Preview)
 	require.True(t, result.Preview.Mutating)
 	require.Contains(t, result.Preview.Verbs, "Set:add")
+}
+
+func newFwRuleSvcForIntegration(t *testing.T) (*svc.FirewallRuleSvc, string) {
+	t.Helper()
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+	tmpBase := t.TempDir()
+	return &svc.FirewallRuleSvc{
+		Inner: &svc.ObjectSvc{
+			Config: cfg, Creds: store, Catalog: cat,
+			NewClient: svc.DefaultClientFactory(false),
+		},
+		Audit:   svc.NewAuditLog(t.TempDir(), true),
+		BaseDir: tmpBase,
+	}, tmpBase
+}
+
+func TestIntegration_FirewallRulePull_RoundTrips(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_RULE to a real rule name on the testvm")
+	}
+
+	svcInst, _ := newFwRuleSvcForIntegration(t)
+	out, err := svcInst.Pull(context.Background(), profileName, ruleName)
+	require.NoError(t, err)
+	require.NotEmpty(t, out.DiffHash)
+	require.FileExists(t, out.DraftPath)
+	require.FileExists(t, out.SnapshotPath)
+}
+
+func TestIntegration_FirewallRulePush_DryRun(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_RULE")
+	}
+
+	svcInst, _ := newFwRuleSvcForIntegration(t)
+	_, err := svcInst.Pull(context.Background(), profileName, ruleName)
+	require.NoError(t, err)
+
+	out, err := svcInst.Push(context.Background(), profileName, ruleName, false, true) // dryRun=true
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.NotNil(t, out.Preview)
+	require.True(t, out.Preview.Mutating)
+}
+
+func TestIntegration_FirewallRulePush_RoundTrip(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_RULE")
+	}
+
+	svcInst, _ := newFwRuleSvcForIntegration(t)
+	pullOut, err := svcInst.Pull(context.Background(), profileName, ruleName)
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pullOut.DraftPath)
+	require.NoError(t, err)
+	orig := string(d.Body)
+
+	flipped := orig
+	switch {
+	case strings.Contains(orig, "LogTraffic: Enable"):
+		flipped = strings.Replace(orig, "LogTraffic: Enable", "LogTraffic: Disable", 1)
+	case strings.Contains(orig, "LogTraffic: Disable"):
+		flipped = strings.Replace(orig, "LogTraffic: Disable", "LogTraffic: Enable", 1)
+	default:
+		t.Skip("test rule does not have LogTraffic field; pick another rule")
+	}
+	d.Body = []byte(flipped)
+	require.NoError(t, draft.WriteDraft(pullOut.DraftPath, d))
+
+	t.Cleanup(func() {
+		// Re-pull to refresh the hash, then write the original body back, then push.
+		pull2, err := svcInst.Pull(context.Background(), profileName, ruleName)
+		if err != nil {
+			t.Logf("cleanup re-pull failed: %v", err)
+			return
+		}
+		d2, err := draft.ReadDraft(pull2.DraftPath)
+		if err != nil {
+			t.Logf("cleanup read failed: %v", err)
+			return
+		}
+		d2.Body = []byte(orig)
+		if err := draft.WriteDraft(pull2.DraftPath, d2); err != nil {
+			t.Logf("cleanup write failed: %v", err)
+			return
+		}
+		if _, err := svcInst.Push(context.Background(), profileName, ruleName, false, false); err != nil {
+			t.Logf("cleanup push failed: %v", err)
+		}
+	})
+
+	out, err := svcInst.Push(context.Background(), profileName, ruleName, false, false)
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+
+	pull3, err := svcInst.Pull(context.Background(), profileName, ruleName)
+	require.NoError(t, err)
+	d3, err := draft.ReadDraft(pull3.DraftPath)
+	require.NoError(t, err)
+	if strings.Contains(orig, "LogTraffic: Enable") {
+		require.Contains(t, string(d3.Body), "LogTraffic: Disable")
+	} else {
+		require.Contains(t, string(d3.Body), "LogTraffic: Enable")
+	}
 }
