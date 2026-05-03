@@ -5,6 +5,7 @@ package testutil
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -315,4 +316,73 @@ func TestIntegration_FirewallRulePush_RoundTrip(t *testing.T) {
 	} else {
 		require.Contains(t, string(d3.Body), "LogTraffic: Enable")
 	}
+}
+
+func newNATRuleSvcForIntegration(t *testing.T) (*svc.NATRuleSvc, string) {
+	t.Helper()
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+	tmpBase := t.TempDir()
+	return &svc.NATRuleSvc{
+		Inner: &svc.ObjectSvc{
+			Config: cfg, Creds: store, Catalog: cat,
+			NewClient: svc.DefaultClientFactory(false),
+		},
+		Audit:   svc.NewAuditLog(t.TempDir(), true),
+		BaseDir: tmpBase,
+	}, tmpBase
+}
+
+func TestIntegration_NATRulePull_RoundTrips(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_NAT_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_NAT_RULE to a real NAT rule on the testvm")
+	}
+
+	svcInst, _ := newNATRuleSvcForIntegration(t)
+	out, err := svcInst.Pull(context.Background(), profileName, ruleName)
+	require.NoError(t, err)
+	require.NotEmpty(t, out.DiffHash)
+	require.FileExists(t, out.DraftPath)
+	require.FileExists(t, out.SnapshotPath)
+}
+
+func TestIntegration_NATRulePush_DryRun(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+	ruleName := os.Getenv("SOPHOSFW_TEST_NAT_RULE")
+	if ruleName == "" {
+		t.Skip("set SOPHOSFW_TEST_NAT_RULE")
+	}
+
+	svcInst, _ := newNATRuleSvcForIntegration(t)
+	_, err := svcInst.Pull(context.Background(), profileName, ruleName)
+	require.NoError(t, err)
+
+	out, err := svcInst.Push(context.Background(), profileName, ruleName, false, true)
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.NotNil(t, out.Preview)
+	require.True(t, out.Preview.Mutating)
+}
+
+func TestIntegration_NATRuleMigration(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "profiles", "home", "drafts")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	legacy := filepath.Join(dir, "x.yaml")
+	require.NoError(t, os.WriteFile(legacy, []byte("# rule: X\n"), 0o600))
+
+	require.NoError(t, draft.MigrateLegacyLayout(tmp, "home"))
+
+	migrated := filepath.Join(dir, "firewall", "x.yaml")
+	_, err := os.Stat(migrated)
+	require.NoError(t, err)
 }
