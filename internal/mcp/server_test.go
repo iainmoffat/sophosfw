@@ -51,8 +51,8 @@ func TestServer_RegistersAllTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 27,
-		"expected 27 tools, got %d", len(result.Tools))
+	require.Len(t, result.Tools, 30,
+		"expected 30 tools, got %d", len(result.Tools))
 
 	names := make([]string, len(result.Tools))
 	for i, tool := range result.Tools {
@@ -68,6 +68,7 @@ func TestServer_RegistersAllTools(t *testing.T) {
 		"firewall_rule_list", "firewall_rule_show",
 		"firewall_rule_create", "firewall_rule_update", "firewall_rule_delete",
 		"nat_rule_list", "nat_rule_show",
+		"nat_rule_create", "nat_rule_update", "nat_rule_delete",
 	} {
 		require.Contains(t, names, want)
 	}

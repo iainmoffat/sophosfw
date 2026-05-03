@@ -28,10 +28,29 @@ func (s *Server) registerNATRule() {
 		Name: "nat_rule_show", Description: "Get one NATRule by name. Response always includes _diffHash, which nat_rule_update and nat_rule_delete require as expectedDiffHash.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: true, Title: "Show NAT rule"},
 	}, s.handleNATRuleShow)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "nat_rule_create",
+		Description: "Create a new NATRule. Requires confirm: true. Use dryRun: true to preview the envelope without sending. Returns sophosfw.v1.natRulePush on apply or sophosfw.v1.preview on dry-run. The body must include Name, Status, IPFamily.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Create NAT rule"},
+	}, s.handleNATRuleCreate)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "nat_rule_update",
+		Description: "Update an existing NATRule. Requires confirm: true AND expectedDiffHash from a prior nat_rule_show. Use dryRun: true to preview.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Update NAT rule"},
+	}, s.handleNATRuleUpdate)
+	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
+		Name:        "nat_rule_delete",
+		Description: "Delete a NATRule by name. Requires confirm: true AND expectedDiffHash from a prior nat_rule_show.",
+		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptrBool(true), Title: "Delete NAT rule"},
+	}, s.handleNATRuleDelete)
 }
 
 func (s *Server) natRuleSvc() *svc.NATRuleSvc {
-	return &svc.NATRuleSvc{Inner: s.objectSvc()}
+	return &svc.NATRuleSvc{
+		Inner:   s.objectSvc(),
+		Audit:   s.deps.Audit,
+		BaseDir: s.deps.BaseDir,
+	}
 }
 
 func (s *Server) handleNATRuleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in NATRuleListInput) (*sdkmcp.CallToolResult, any, error) {
