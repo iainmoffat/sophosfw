@@ -10,3 +10,5 @@ coverage.txt
 !.env.example
 .idea/
 .vscode/
+
+completions/
