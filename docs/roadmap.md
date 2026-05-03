@@ -9,7 +9,9 @@
 - Phase 5 — Agent skill completion (complete; v0.4.0-phase5)
 - Phase 6 — Safe mutations (complete; v0.5.0-phase6)
 - Phase 7 — FirewallRule draft workflow (complete; v0.6.0-phase7)
-- Phase 8 — MCP tools for firewall rules + rule create workflow + extension to NATRule
+- Phase 8 — NATRule draft workflow (complete; v0.7.0-phase8)
+- Phase 9 — `firewall rule new` and `nat rule new` create workflows
+- Phase 10 — MCP-native firewall and NAT rule mutating tools
 
 ## Phase 3 — First-class read-only commands
 **Goal:** ergonomic wrappers over the catalog for high-traffic objects.
