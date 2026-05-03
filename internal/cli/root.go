@@ -67,7 +67,7 @@ func HandleError(cmd *cobra.Command, err error) int {
 	if jsonMode {
 		_ = render.WriteError(os.Stderr, kind, err.Error(), profile, nil)
 	} else {
-		fmt.Fprintf(os.Stderr, "error (%s): %v\n", kind, err)
+		_, _ = fmt.Fprintf(os.Stderr, "error (%s): %v\n", kind, err)
 	}
 	return ExitCodeFor(kind)
 }

@@ -74,7 +74,7 @@ func newServiceShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n  Derived: protocol=%s portRange=%s\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n  Derived: protocol=%s portRange=%s\n",
 				v.Name, v.Type, v.Derived.Protocol, v.Derived.PortRange)
 			return nil
 		},

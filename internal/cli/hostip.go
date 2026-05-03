@@ -100,7 +100,7 @@ func newHostIpShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n  IPAddress: %s\n  Subnet:    %s\n  Derived:   kind=%s cidr=%s\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n  IPAddress: %s\n  Subnet:    %s\n  Derived:   kind=%s cidr=%s\n",
 				h.Name, h.HostType, h.IPAddress, h.Subnet, h.Derived.Kind, h.Derived.CIDR)
 			return nil
 		},
@@ -243,7 +243,7 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 					_, err = cmd.OutOrStdout().Write(b)
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
 				return nil
 			}
 			return renderHostIpMutation(cmd, "create", result)
@@ -307,7 +307,7 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 					_, err = cmd.OutOrStdout().Write(b)
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
 				return nil
 			}
 			return renderHostIpMutation(cmd, "update", result)
@@ -356,7 +356,7 @@ func newHostIpDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 					_, err = cmd.OutOrStdout().Write(b)
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
 				return nil
 			}
 			return renderHostIpMutation(cmd, "delete", result)
@@ -371,7 +371,7 @@ func newHostIpDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 func renderHostIpMutation(cmd *cobra.Command, operation string, result *svc.HostIPMutationResult) error {
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	if !jsonMode {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s applied\n", operation)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s applied\n", operation)
 		return nil
 	}
 	b, err := render.HostIpMutationEnvelope(result)

@@ -22,6 +22,7 @@ func TestFQDNHostParser_ParsesWildcard(t *testing.T) {
 	raw := json.RawMessage(`{"Name":"all-cdn","FQDN":"*.cdn.example.com","IPFamily":"IPv4"}`)
 	v, err := FQDNHostParser(raw)
 	require.NoError(t, err)
-	host := v.(FQDNHost)
+	host, ok := v.(FQDNHost)
+	require.True(t, ok, "got %T", v)
 	require.Equal(t, "*.cdn.example.com", host.FQDN)
 }

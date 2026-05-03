@@ -33,7 +33,7 @@ func newSkillCmd(d RootDeps) *cobra.Command {
 			Use:   "path",
 			Short: "Print the absolute path to the installed agent skill",
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				fmt.Fprintln(cmd.OutOrStdout(), d.SkillDir)
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), d.SkillDir)
 				return nil
 			},
 		},
@@ -76,6 +76,6 @@ func runSkillDoctor(out io.Writer, skillDir string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("required surface not documented in examples.md or mcp-tools.md: %s", strings.Join(missing, ", "))
 	}
-	fmt.Fprintln(out, "skill ok")
+	_, _ = fmt.Fprintln(out, "skill ok")
 	return nil
 }

@@ -162,7 +162,8 @@ func HostIPEnvelopeWithDiffHash(h *svc.HostIP, hash string) ([]byte, error) {
 	}
 	hbytes, _ := json.Marshal(h)
 	var hmap map[string]any
-	json.Unmarshal(hbytes, &hmap)
+	// h is a struct we just marshalled, so the round-trip Unmarshal cannot fail.
+	_ = json.Unmarshal(hbytes, &hmap)
 	for k, v := range hmap {
 		payload[k] = v
 	}

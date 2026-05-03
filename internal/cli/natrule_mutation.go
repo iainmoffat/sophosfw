@@ -31,12 +31,12 @@ func newNATRulePullCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Draft written: %s\nSnapshot:      %s\nDiff hash:     %s\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Draft written: %s\nSnapshot:      %s\nDiff hash:     %s\n",
 				result.DraftPath, result.SnapshotPath, result.DiffHash)
 			if len(result.References) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "References:")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "References:")
 				for _, rs := range result.References {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %s: %v\n", rs.Type, rs.Names)
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: %v\n", rs.Type, rs.Names)
 				}
 			}
 			return nil
@@ -66,7 +66,7 @@ func newNATRuleDiffCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				return err
 			}
 			if !result.HasChanges {
-				fmt.Fprintln(cmd.OutOrStdout(), "no changes")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "no changes")
 				return nil
 			}
 			_, err = cmd.OutOrStdout().Write([]byte(result.UnifiedDiff))
@@ -99,10 +99,10 @@ func newNATRulePushCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				return err
 			}
 			if result.DryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would push %s\nverbs: %v\n", result.Rule, result.Preview.Verbs)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would push %s\nverbs: %v\n", result.Rule, result.Preview.Verbs)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "applied: %s (newDiffHash: %s)\n", result.Rule, result.NewDiffHash)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "applied: %s (newDiffHash: %s)\n", result.Rule, result.NewDiffHash)
 			return nil
 		},
 	}
@@ -137,10 +137,10 @@ func newNATRuleDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				return err
 			}
 			if result.DryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would delete %s\n", result.Rule)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would delete %s\n", result.Rule)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", result.Rule)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", result.Rule)
 			return nil
 		},
 	}
@@ -171,7 +171,7 @@ func newNATRuleNewCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(),
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 				"Draft written: %s\nOperation:     create\nSnapshot:      (none — first push will create one)\nEdit and run: sophosfw nat rule push %s --yes\n",
 				result.DraftPath, args[0])
 			return nil

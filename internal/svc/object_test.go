@@ -121,7 +121,8 @@ func TestObjectSvc_List_FilterPassedThrough(t *testing.T) {
 	_, err := s.List(context.Background(), "home", "IPHost", &sophos.FilterClause{Field: "Name", Criteria: "like", Value: "LAN"})
 	require.NoError(t, err)
 	require.Len(t, cl.last.Operations, 1)
-	got := cl.last.Operations[0].(sophos.GetOp)
+	got, ok := cl.last.Operations[0].(sophos.GetOp)
+	require.True(t, ok, "got %T", cl.last.Operations[0])
 	require.NotNil(t, got.Filter)
 	require.Equal(t, "like", got.Filter.Criteria)
 }
@@ -138,7 +139,8 @@ func TestObjectSvc_Usage_UsesUsageTagFromCatalog(t *testing.T) {
 	s := newObjectSvc(t, cl)
 	_, err := s.Usage(context.Background(), "home", "IPHost", "LAN")
 	require.NoError(t, err)
-	op := cl.last.Operations[0].(sophos.StatisticsOp)
+	op, ok := cl.last.Operations[0].(sophos.StatisticsOp)
+	require.True(t, ok, "got %T", cl.last.Operations[0])
 	require.Equal(t, "IPHostStatistics", op.XMLTag)
 }
 

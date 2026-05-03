@@ -80,7 +80,7 @@ func newRawRequestCmd(d RootDeps) *cobra.Command {
 				if err := s.Apply(cmd.Context(), profile, body); err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), "ok")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "ok")
 				return nil
 			}
 

@@ -41,6 +41,7 @@ func TestWriteError_EmitsErrorEnvelope(t *testing.T) {
 	require.Equal(t, "auth_failed", got["kind"])
 	require.Equal(t, "bad credentials", got["message"])
 	require.Equal(t, "home", got["profile"])
-	details := got["details"].(map[string]any)
+	details, ok := got["details"].(map[string]any)
+	require.True(t, ok, "got %T", got["details"])
 	require.Equal(t, "check password", details["hint"])
 }

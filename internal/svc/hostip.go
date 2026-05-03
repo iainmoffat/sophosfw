@@ -252,39 +252,41 @@ func marshalIPHost(in HostIPCreateInput) []byte {
 		family = "IPv4"
 	}
 	var b strings.Builder
+	// xml.EscapeText writes to a strings.Builder whose Write never returns an
+	// error, so the error returns from these calls are safe to discard.
 	b.WriteString("<IPHost>")
 	b.WriteString("<Name>")
-	xml.EscapeText(&b, []byte(in.Name))
+	_ = xml.EscapeText(&b, []byte(in.Name))
 	b.WriteString("</Name>")
 	b.WriteString("<HostType>")
-	xml.EscapeText(&b, []byte(in.HostType))
+	_ = xml.EscapeText(&b, []byte(in.HostType))
 	b.WriteString("</HostType>")
 	b.WriteString("<IPFamily>")
-	xml.EscapeText(&b, []byte(family))
+	_ = xml.EscapeText(&b, []byte(family))
 	b.WriteString("</IPFamily>")
 	if in.IPAddress != "" {
 		b.WriteString("<IPAddress>")
-		xml.EscapeText(&b, []byte(in.IPAddress))
+		_ = xml.EscapeText(&b, []byte(in.IPAddress))
 		b.WriteString("</IPAddress>")
 	}
 	if in.Subnet != "" {
 		b.WriteString("<Subnet>")
-		xml.EscapeText(&b, []byte(in.Subnet))
+		_ = xml.EscapeText(&b, []byte(in.Subnet))
 		b.WriteString("</Subnet>")
 	}
 	if in.StartIPAddress != "" {
 		b.WriteString("<StartIPAddress>")
-		xml.EscapeText(&b, []byte(in.StartIPAddress))
+		_ = xml.EscapeText(&b, []byte(in.StartIPAddress))
 		b.WriteString("</StartIPAddress>")
 	}
 	if in.EndIPAddress != "" {
 		b.WriteString("<EndIPAddress>")
-		xml.EscapeText(&b, []byte(in.EndIPAddress))
+		_ = xml.EscapeText(&b, []byte(in.EndIPAddress))
 		b.WriteString("</EndIPAddress>")
 	}
 	if in.IPAddressList != "" {
 		b.WriteString("<IPAddressList>")
-		xml.EscapeText(&b, []byte(in.IPAddressList))
+		_ = xml.EscapeText(&b, []byte(in.IPAddressList))
 		b.WriteString("</IPAddressList>")
 	}
 	b.WriteString("</IPHost>")

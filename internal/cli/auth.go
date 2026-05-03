@@ -38,7 +38,7 @@ func newAuthLoginCmd(d RootDeps) *cobra.Command {
 			if err := a.Login(cmd.Context(), profile, username, password); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "ok")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "ok")
 			return nil
 		},
 	}
@@ -48,7 +48,7 @@ func promptCredentials(cmd *cobra.Command) (string, string, error) {
 	if u := os.Getenv("SOPHOSFW_USERNAME"); u != "" {
 		return u, os.Getenv("SOPHOSFW_PASSWORD"), nil
 	}
-	fmt.Fprint(cmd.ErrOrStderr(), "Username: ")
+	_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Username: ")
 	r := bufio.NewReader(os.Stdin)
 	username, err := r.ReadString('\n')
 	if err != nil {
@@ -56,12 +56,12 @@ func promptCredentials(cmd *cobra.Command) (string, string, error) {
 	}
 	username = strings.TrimSpace(username)
 
-	fmt.Fprint(cmd.ErrOrStderr(), "Password: ")
+	_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Password: ")
 	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", "", err
 	}
-	fmt.Fprintln(cmd.ErrOrStderr())
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr())
 	return username, string(pw), nil
 }
 
@@ -85,7 +85,7 @@ func newAuthStatusCmd(d RootDeps) *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "profile: %s\nurl: %s\nloggedIn: %t\nbackend: %s\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "profile: %s\nurl: %s\nloggedIn: %t\nbackend: %s\n",
 				st.Profile, st.URL, st.LoggedIn, st.CredentialsBackend)
 			return nil
 		},
@@ -180,7 +180,7 @@ func newProfileListCmd(d RootDeps) *cobra.Command {
 				if p.Current {
 					marker = "* "
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s%s\t%s\n", marker, p.Name, p.URL)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s%s\t%s\n", marker, p.Name, p.URL)
 			}
 			return nil
 		},

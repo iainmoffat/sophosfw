@@ -83,7 +83,7 @@ func newNATRuleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%v\n", rule)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%v\n", rule)
 			return nil
 		},
 	}

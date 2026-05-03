@@ -91,7 +91,7 @@ func (c *Client) send(ctx context.Context, xmlBody []byte) (*Response, error) {
 	}
 
 	if c.InsecureSkipVerify && c.Stderr != nil {
-		fmt.Fprintln(c.Stderr, "warning: TLS verification disabled for this request (--insecure-skip-verify)")
+		_, _ = fmt.Fprintln(c.Stderr, "warning: TLS verification disabled for this request (--insecure-skip-verify)")
 	}
 
 	form := url.Values{}
@@ -108,7 +108,7 @@ func (c *Client) send(ctx context.Context, xmlBody []byte) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sophos: http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
