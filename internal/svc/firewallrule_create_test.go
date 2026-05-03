@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/iainmoffat/sophosfw/internal/draft"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 	"github.com/stretchr/testify/require"
@@ -103,4 +105,29 @@ func TestFirewallRuleSvc_New_AuditLogged(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(logBody), `"operation":"firewall_rule_new"`)
 	require.Contains(t, string(logBody), `"objectName":"MyRule"`)
+}
+
+func TestFirewallRuleSvc_New_RuleNameWithSpecialChars(t *testing.T) {
+	cases := []string{
+		"Rule:With:Colons",
+		"Rule with spaces",
+		"Rule\"With\"Quotes",
+		"Rule'With'Apostrophes",
+	}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			svc, _, _ := newFwRuleSvc(t, nil)
+			out, err := svc.New(context.Background(), "home", name, "")
+			require.NoError(t, err)
+			d, err := draft.ReadDraft(out.DraftPath)
+			require.NoError(t, err)
+			// Body must be parseable YAML and contain the literal rule name
+			// somewhere (yaml.Marshal will properly quote/escape).
+			require.NotEmpty(t, d.Body)
+			// The rule name must round-trip through yaml unmarshal cleanly.
+			var parsed map[string]any
+			require.NoError(t, yaml.Unmarshal(d.Body, &parsed))
+			require.Equal(t, name, parsed["Name"])
+		})
+	}
 }

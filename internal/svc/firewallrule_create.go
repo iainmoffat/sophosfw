@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -64,10 +63,12 @@ func (s *FirewallRuleSvc) New(ctx context.Context, profileName, ruleName, fromRu
 	// 1. Compose body.
 	var bodyMap map[string]any
 	if fromRule == "" {
-		tmpl := strings.ReplaceAll(firewallRuleTemplate, "__NAME__", ruleName)
-		if perr := yaml.Unmarshal([]byte(tmpl), &bodyMap); perr != nil {
+		if perr := yaml.Unmarshal([]byte(firewallRuleTemplate), &bodyMap); perr != nil {
 			return nil, fmt.Errorf("template parse: %w", perr)
 		}
+		// Overwrite the placeholder Name with the actual rule name. yaml.Marshal
+		// will escape special chars (newlines, colons, quotes) safely.
+		bodyMap["Name"] = ruleName
 	} else {
 		live, perr := s.Get(ctx, profileName, fromRule)
 		if perr != nil {
@@ -76,7 +77,11 @@ func (s *FirewallRuleSvc) New(ctx context.Context, profileName, ruleName, fromRu
 		if live == nil {
 			return nil, fmt.Errorf("firewall rule %q: %w", fromRule, sophos.ErrNotFound)
 		}
-		bodyMap = live
+		// Shallow copy to avoid mutating the map returned by Get.
+		bodyMap = make(map[string]any, len(live))
+		for k, v := range live {
+			bodyMap[k] = v
+		}
 		bodyMap["Name"] = ruleName
 		delete(bodyMap, "After")
 		delete(bodyMap, "Before")
