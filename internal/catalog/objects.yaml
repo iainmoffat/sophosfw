@@ -72,9 +72,9 @@ objects:
     usageTag: InterfaceStatistics
     typedParser: ""
 
-  - tag: Gateway
-    aliases: [gateway]
-    description: "Gateways used in WAN/SD-WAN"
+  - tag: GatewayConfiguration
+    aliases: [gateway, Gateway]
+    description: "Gateways used in WAN/SD-WAN (Sophos uses the GatewayConfiguration XML tag)"
     columns: [Name, IPAddress, GatewayType]
     filterable: [Name, IPAddress]
     usageTag: GatewayStatistics
