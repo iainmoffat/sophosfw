@@ -37,9 +37,9 @@ func TestNATRuleSvc_New_FromTemplate(t *testing.T) {
 
 func TestNATRuleSvc_New_FromExisting(t *testing.T) {
 	body := map[string]any{
-		"Name":     "OldNAT",
-		"Status":   "Enable",
-		"IPFamily": "IPv4",
+		"Name":                   "OldNAT",
+		"Status":                 "Enable",
+		"IPFamily":               "IPv4",
 		"OriginalSourceNetworks": map[string]any{"Network": "LAN"},
 		"TranslatedSource":       "Original",
 	}

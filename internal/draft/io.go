@@ -24,7 +24,7 @@ var (
 type Draft struct {
 	Profile   string
 	Rule      string
-	Operation string    // "create" | "update". Empty defaults to "update" on read.
+	Operation string // "create" | "update". Empty defaults to "update" on read.
 	PulledAt  time.Time
 	DiffHash  string
 	Body      []byte
