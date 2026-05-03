@@ -114,6 +114,12 @@ func (s *HostIPSvc) Get(ctx context.Context, profileName, name string) (*HostIP,
 	if !ok {
 		return nil, fmt.Errorf("HostIPSvc.Get: catalog returned non-IPHost item: %T", inner.Data)
 	}
+	// Sophos sometimes returns a stub record (all fields empty) for a
+	// name that doesn't exist, instead of an empty result. Treat as
+	// not_found so callers see a consistent kind.
+	if raw.Name == "" {
+		return nil, fmt.Errorf("IPHost %q: %w", name, sophos.ErrNotFound)
+	}
 	h := HostIP{IPHost: raw}
 	enrichHostIP(&h)
 	return &h, nil

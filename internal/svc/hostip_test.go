@@ -3,6 +3,7 @@ package svc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
@@ -97,6 +98,20 @@ func TestHostIPSvc_Get_ReturnsTypedAndEnriched(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "LAN-network", out.Name)
 	require.Equal(t, "10.0.0.0/24", out.Derived.CIDR)
+}
+
+// TestHostIPSvc_Get_EmptyStubReturnsNotFound covers a Sophos quirk: when
+// asked for a name that doesn't exist, the firewall sometimes returns a
+// stub record with all fields empty (rather than an empty result). Treat
+// that stub as not_found.
+func TestHostIPSvc_Get_EmptyStubReturnsNotFound(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"IPHost": {json.RawMessage(`{"Name":"","IPFamily":"","HostType":""}`)},
+	}
+	s := newHostIPSvc(t, body)
+	_, err := s.Get(context.Background(), "home", "missing")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrNotFound))
 }
 
 func TestSubnetToPrefix_Common(t *testing.T) {
