@@ -11,20 +11,29 @@ import (
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
-// firewallRuleTemplate is the minimal-valid skeleton emitted by `new`
-// when no --from is supplied. Defaults to Action=Drop (fail-safe).
+// firewallRuleTemplate is the structurally-valid skeleton emitted by
+// `new` when no --from is supplied. Defaults are deliberately
+// fail-safe: Status=Disable so the rule is inert until the user
+// reviews and re-enables; Action=Drop so an enabled-but-misconfigured
+// rule denies rather than allows.
+//
+// NOTE: this template is intentionally minimal. Sophos rejects rules
+// that lack real SourceNetworks/DestinationNetworks references with
+// "Operation could not be performed on Entity" — the user is expected
+// to edit the draft and add references that exist on their firewall
+// before pushing. For most users `firewall rule new <name> --from
+// <existing-rule>` is the more practical starting point.
 const firewallRuleTemplate = `Name: __NAME__
-Status: Enable
+Description: ""
+Status: Disable
 IPFamily: IPv4
 PolicyType: Network
+Position: Bottom
 NetworkPolicy:
   Action: Drop
   LogTraffic: Enable
   Schedule: All The Time
-  SourceZones:
-    Zone: LAN
-  DestinationZones:
-    Zone: WAN
+  SkipLocalDestined: Disable
 `
 
 // FirewallRuleNewResult mirrors FirewallRulePullResult — same fields,
