@@ -1,7 +1,9 @@
 package svc
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"sort"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/iainmoffat/sophosfw/internal/draft"
+	"github.com/iainmoffat/sophosfw/internal/safety"
 	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
@@ -347,4 +350,271 @@ func unionKeys(a, b map[string]any) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// FirewallRulePushResult is what Push returns.
+type FirewallRulePushResult struct {
+	Profile     string
+	Rule        string
+	Operation   string         // "update"
+	DryRun      bool
+	Preview     *Preview       // dry-run only
+	NewDiffHash string         // apply only
+	Item        map[string]any // apply only — refetched body
+}
+
+// requiredFirewallRuleFields enumerates the top-level YAML keys a
+// FirewallRule body MUST carry.
+var requiredFirewallRuleFields = []string{"Name", "Status", "IPFamily", "PolicyType"}
+
+// Push validates the draft, checks drift via diff hash, builds and sends a
+// <Set operation="update"><FirewallRule>...</FirewallRule></Set> envelope,
+// archives the new state, and audits.
+func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string, ignoreHash, dryRun bool) (*FirewallRulePushResult, error) {
+	profile, name, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Read draft.
+	draftPath, err := draft.DraftPath(s.BaseDir, name, ruleName)
+	if err != nil {
+		return nil, err
+	}
+	d, err := draft.ReadDraft(draftPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Header sanity.
+	if d.Rule != ruleName {
+		return nil, fmt.Errorf("%w: draft header rule %q does not match cli arg %q", sophos.ErrInvalidRequest, d.Rule, ruleName)
+	}
+	if d.Profile != name {
+		return nil, fmt.Errorf("%w: draft header profile %q does not match active profile %q", sophos.ErrInvalidRequest, d.Profile, name)
+	}
+
+	// 3. Parse body + required-field validation.
+	parsed, err := parseAndValidateRuleBody(d.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Read-only profile.
+	if profile.ReadOnly {
+		return nil, fmt.Errorf("%w: profile %q is read-only", sophos.ErrReadOnlyViolation, name)
+	}
+
+	// 5. Catalog mutable check.
+	entry, ok := s.Inner.Catalog.Resolve("FirewallRule")
+	if !ok || !entry.Mutable {
+		return nil, fmt.Errorf("%w: FirewallRule is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
+	}
+
+	// 6. Refetch live + diff hash check (unless ignored).
+	if !ignoreHash {
+		live, err := s.Get(ctx, profileName, ruleName)
+		if err != nil {
+			return nil, err
+		}
+		liveHash, err := DiffHash(live)
+		if err != nil {
+			return nil, err
+		}
+		if liveHash != d.DiffHash {
+			return nil, fmt.Errorf("%w (have %s, expected %s)", ErrDiffHashMismatch, liveHash, d.DiffHash)
+		}
+	}
+
+	// 7. Build envelope.
+	c, err := s.Inner.Creds.Load(name)
+	if err != nil {
+		return nil, err
+	}
+	inner, err := marshalFirewallRule(parsed)
+	if err != nil {
+		return nil, err
+	}
+	full, err := sophos.BuildSetEnvelope("update", inner, c.Username, c.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	// 8. Audit entry skeleton.
+	entryAudit := AuditEntry{
+		Profile:          name,
+		Operation:        "firewall_rule_push",
+		ObjectType:       "FirewallRule",
+		ObjectName:       ruleName,
+		ExpectedDiffHash: d.DiffHash,
+		RedactedXML:      string(safety.RedactXML(full)),
+	}
+	if ignoreHash {
+		entryAudit.ExpectedDiffHash = "ignored"
+	}
+
+	// 9. Dry-run path.
+	if dryRun {
+		mutating, verbs := safety.IsMutating(full)
+		pv := &Preview{
+			Profile:        name,
+			Mutating:       mutating,
+			Verbs:          verbs,
+			RedactedXML:    entryAudit.RedactedXML,
+			WouldSendBytes: len(full),
+		}
+		entryAudit.Result = "ok (dry-run)"
+		_ = s.Audit.Write(entryAudit)
+		return &FirewallRulePushResult{
+			Profile:   name,
+			Rule:      ruleName,
+			Operation: "update",
+			DryRun:    true,
+			Preview:   pv,
+		}, nil
+	}
+
+	// 10. Apply path.
+	cl := s.Inner.NewClient(profile, c)
+	if _, sendErr := cl.DoRaw(ctx, full); sendErr != nil {
+		entryAudit.Result = "error:" + ErrorKind(sendErr)
+		entryAudit.ErrorMessage = sendErr.Error()
+		_ = s.Audit.Write(entryAudit)
+		return nil, sendErr
+	}
+	entryAudit.Result = "ok"
+	_ = s.Audit.Write(entryAudit)
+
+	// 11. Refetch, archive, update draft hash.
+	refetched, _ := s.Get(ctx, profileName, ruleName)
+	newHash := ""
+	if refetched != nil {
+		nh, hashErr := DiffHash(refetched)
+		if hashErr == nil {
+			newHash = nh
+		}
+	}
+	if refetched != nil && newHash != "" {
+		now := s.now()
+		snapPath, perr := draft.SnapshotPath(s.BaseDir, name, ruleName, now)
+		if perr == nil {
+			yamlBytes, merr := marshalCanonicalYAML(refetched)
+			if merr == nil {
+				_ = draft.WriteDraft(snapPath, &draft.Draft{
+					Profile: name, Rule: ruleName, PulledAt: now, DiffHash: newHash, Body: yamlBytes,
+				})
+				_ = draft.RotateSnapshots(s.BaseDir, name, ruleName, 10)
+			}
+		}
+		// Update draft header diffHash (keep the user's body edits) so the
+		// next push validates against the post-push state.
+		d.DiffHash = newHash
+		_ = draft.WriteDraft(draftPath, d)
+	}
+
+	return &FirewallRulePushResult{
+		Profile:     name,
+		Rule:        ruleName,
+		Operation:   "update",
+		DryRun:      false,
+		NewDiffHash: newHash,
+		Item:        refetched,
+	}, nil
+}
+
+// parseAndValidateRuleBody unmarshals the draft body and verifies that
+// the four required top-level fields are present and non-empty.
+func parseAndValidateRuleBody(body []byte) (map[string]any, error) {
+	var m map[string]any
+	if err := yaml.Unmarshal(body, &m); err != nil {
+		return nil, fmt.Errorf("%w: draft body is not valid YAML: %v", sophos.ErrInvalidRequest, err)
+	}
+	if m == nil {
+		return nil, fmt.Errorf("%w: draft body is empty", sophos.ErrInvalidRequest)
+	}
+	for _, k := range requiredFirewallRuleFields {
+		v, ok := m[k]
+		if !ok {
+			return nil, fmt.Errorf("%w: draft body missing required field %q", sophos.ErrInvalidRequest, k)
+		}
+		if str, isStr := v.(string); isStr && str == "" {
+			return nil, fmt.Errorf("%w: draft body field %q is empty", sophos.ErrInvalidRequest, k)
+		}
+	}
+	return m, nil
+}
+
+// marshalFirewallRule converts the parsed rule body to XML wrapped in
+// <FirewallRule>...</FirewallRule>.
+func marshalFirewallRule(rule map[string]any) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString("<FirewallRule>")
+	if err := writeMapChildren(&buf, rule); err != nil {
+		return nil, err
+	}
+	buf.WriteString("</FirewallRule>")
+	return buf.Bytes(), nil
+}
+
+func writeMapChildren(buf *bytes.Buffer, m map[string]any) error {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := writeKeyValue(buf, k, m[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeKeyValue(buf *bytes.Buffer, key string, val any) error {
+	switch v := val.(type) {
+	case nil:
+		return nil
+	case string:
+		writeOpen(buf, key)
+		if err := xml.EscapeText(buf, []byte(v)); err != nil {
+			return err
+		}
+		writeClose(buf, key)
+	case bool:
+		writeOpen(buf, key)
+		fmt.Fprintf(buf, "%t", v)
+		writeClose(buf, key)
+	case int, int64, float64:
+		writeOpen(buf, key)
+		fmt.Fprintf(buf, "%v", v)
+		writeClose(buf, key)
+	case map[string]any:
+		writeOpen(buf, key)
+		if err := writeMapChildren(buf, v); err != nil {
+			return err
+		}
+		writeClose(buf, key)
+	case []any:
+		// Emit one <key>VAL</key> per item.
+		for _, item := range v {
+			if err := writeKeyValue(buf, key, item); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported value type for key %q: %T", key, val)
+	}
+	return nil
+}
+
+func writeOpen(buf *bytes.Buffer, key string) {
+	buf.WriteString("<")
+	buf.WriteString(key)
+	buf.WriteString(">")
+}
+
+func writeClose(buf *bytes.Buffer, key string) {
+	buf.WriteString("</")
+	buf.WriteString(key)
+	buf.WriteString(">")
 }

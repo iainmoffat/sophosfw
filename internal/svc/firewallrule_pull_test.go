@@ -227,3 +227,144 @@ func TestFirewallRuleSvc_Diff_MissingSnapshot(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, draft.ErrSnapshotMissing))
 }
+
+func TestFirewallRuleSvc_Push_DryRun_NoSend(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	out, err := svc.Push(context.Background(), "home", "X", false, true) // ignoreHash=false, dryRun=true
+	require.NoError(t, err)
+	require.True(t, out.DryRun)
+	require.NotNil(t, out.Preview)
+	require.True(t, out.Preview.Mutating)
+	require.Empty(t, fc.sent, "dry-run must not send")
+}
+
+func TestFirewallRuleSvc_Push_Apply_RefetchAndArchive(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	out, err := svc.Push(context.Background(), "home", "X", false, false) // apply
+	require.NoError(t, err)
+	require.False(t, out.DryRun)
+	require.Equal(t, "update", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.Contains(t, string(fc.sent[0]), `<Set operation="update">`)
+	require.Contains(t, string(fc.sent[0]), `<FirewallRule>`)
+	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+}
+
+func TestFirewallRuleSvc_Push_DiffHashMismatch_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	// Mutate the live body so the hash changes.
+	fc.body["Status"] = "Disable"
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrDiffHashMismatch))
+	require.Empty(t, fc.sent, "mismatch must reject before send")
+}
+
+func TestFirewallRuleSvc_Push_DiffHashMismatch_IgnoreFlag_Applies(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+	fc.body["Status"] = "Disable"
+
+	_, err = svc.Push(context.Background(), "home", "X", true, false) // ignoreHash=true
+	require.NoError(t, err)
+	require.Len(t, fc.sent, 1)
+}
+
+func TestFirewallRuleSvc_Push_HeaderRuleMismatch_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Rule = "DifferentName"
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rule")
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_Push_RequiredFieldMissing_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = bytes.ReplaceAll(d.Body, []byte("PolicyType: Network\n"), nil)
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "PolicyType")
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_Push_ReadOnlyProfile_Rejects(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	p, ok := svc.Inner.Config.Profiles["home"]
+	require.True(t, ok)
+	p.ReadOnly = true
+	svc.Inner.Config.Profiles["home"] = p
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrReadOnlyViolation))
+	require.Empty(t, fc.sent)
+}
+
+func TestFirewallRuleSvc_Push_Failure_AuditLogged(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	_, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	fc.sendErr = sophos.ErrServerError
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.Error(t, err)
+
+	logBody, err := os.ReadFile(filepath.Join(svc.Audit.Dir(), "audit.log"))
+	require.NoError(t, err)
+	require.Contains(t, string(logBody), `"operation":"firewall_rule_push"`)
+	require.Contains(t, string(logBody), `"result":"error:server_error"`)
+}
