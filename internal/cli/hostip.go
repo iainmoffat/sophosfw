@@ -16,6 +16,7 @@ func newHostCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.AddCommand(newIPHostGroupCmd(d, cat))
 	cmd.AddCommand(newFQDNHostCmd(d, cat))
 	cmd.AddCommand(newFQDNHostGroupCmd(d, cat))
+	cmd.AddCommand(newMACHostCmd(d, cat))
 	return cmd
 }
 

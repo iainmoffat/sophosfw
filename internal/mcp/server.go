@@ -77,6 +77,7 @@ func (s *Server) registerAll() {
 	s.registerIPHostGroup()
 	s.registerFQDNHost()
 	s.registerFQDNHostGroup()
+	s.registerMACHost()
 	s.registerService()
 	s.registerFirewallRule()
 	s.registerNATRule()
