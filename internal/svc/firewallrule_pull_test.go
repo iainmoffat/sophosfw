@@ -99,6 +99,11 @@ func TestFirewallRuleSvc_Pull_WritesSnapshotAndDraft(t *testing.T) {
 	require.Equal(t, "WAN-to-LAN", d.Rule)
 	require.Contains(t, string(d.Body), "Name: WAN-to-LAN")
 	require.Contains(t, string(d.Body), "PolicyType: Network")
+	// Regression: `_diffHash` is a sophosfw-internal field injected by
+	// ObjectSvc.Get for catalog-mutable types. It must be stripped before
+	// the draft is written so the on-disk YAML is hand-editable and never
+	// round-trips into the push XML envelope.
+	require.NotContains(t, string(d.Body), "_diffHash")
 
 	allRefs := []string{}
 	for _, rs := range out.References {
@@ -260,6 +265,35 @@ func TestFirewallRuleSvc_Push_Apply_RefetchAndArchive(t *testing.T) {
 	require.Contains(t, string(fc.sent[0]), `<Set operation="update">`)
 	require.Contains(t, string(fc.sent[0]), `<FirewallRule>`)
 	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+	// Regression: the sophosfw-internal `_diffHash` field must never
+	// appear in the XML body sent to the appliance.
+	require.NotContains(t, string(fc.sent[0]), "_diffHash")
+}
+
+// TestFirewallRuleSvc_Push_StripsDiffHashFromHandEditedDraft is the defense-
+// in-depth regression for parseAndValidateRuleBody: even if a draft on disk
+// already has a `_diffHash` entry (e.g. left over from before the Pull-side
+// fix, or hand-edited in by a user), the push must not include it in the XML
+// envelope.
+func TestFirewallRuleSvc_Push_StripsDiffHashFromHandEditedDraft(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4", "PolicyType": "Network",
+	}
+	svc, fc, _ := newFwRuleSvc(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	// Inject `_diffHash` into the draft body to simulate an older draft
+	// (or one a user hand-edited) before the parse-time strip lands.
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = append(d.Body, []byte("_diffHash: deadbeef\n")...)
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.Len(t, fc.sent, 1)
+	require.NotContains(t, string(fc.sent[0]), "_diffHash")
 }
 
 func TestFirewallRuleSvc_Push_DiffHashMismatch_Rejects(t *testing.T) {

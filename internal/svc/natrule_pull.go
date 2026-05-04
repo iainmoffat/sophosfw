@@ -41,6 +41,10 @@ func (s *NATRuleSvc) Pull(ctx context.Context, profileName, ruleName string) (*N
 	if body == nil {
 		return nil, fmt.Errorf("NAT rule %q: %w", ruleName, sophos.ErrNotFound)
 	}
+	// Strip the sophosfw-internal `_diffHash` field that ObjectSvc.Get
+	// injects for catalog-mutable types, so it never lands in the draft
+	// YAML on disk (and therefore never round-trips into the push XML).
+	delete(body, "_diffHash")
 
 	hash, err := DiffHash(body)
 	if err != nil {
@@ -418,6 +422,10 @@ func parseAndValidateNATRuleBody(body []byte) (map[string]any, error) {
 	if m == nil {
 		return nil, fmt.Errorf("%w: draft body is empty", sophos.ErrInvalidRequest)
 	}
+	// Defense in depth: even if an older or hand-edited draft still has
+	// the sophosfw-internal `_diffHash` field, strip it here so it cannot
+	// reach marshalObjectBody and leak into the XML envelope.
+	delete(m, "_diffHash")
 	for _, k := range requiredNATRuleFields {
 		v, ok := m[k]
 		if !ok {

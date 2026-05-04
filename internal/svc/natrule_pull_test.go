@@ -101,6 +101,11 @@ func TestNATRuleSvc_Pull_WritesSnapshotAndDraft(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "DNAT-X", d.Rule)
 	require.Contains(t, string(d.Body), "Name: DNAT-X")
+	// Regression: `_diffHash` is a sophosfw-internal field injected by
+	// ObjectSvc.Get for catalog-mutable types. It must be stripped before
+	// the draft is written so the on-disk YAML is hand-editable and never
+	// round-trips into the push XML envelope.
+	require.NotContains(t, string(d.Body), "_diffHash")
 
 	allRefs := []string{}
 	for _, rs := range out.References {
@@ -220,6 +225,32 @@ func TestNATRuleSvc_Push_Apply_RefetchAndArchive(t *testing.T) {
 	require.Contains(t, string(fc.sent[0]), `<Set operation="update">`)
 	require.Contains(t, string(fc.sent[0]), `<NATRule>`)
 	require.Contains(t, string(fc.sent[0]), `<Name>X</Name>`)
+	// Regression: the sophosfw-internal `_diffHash` field must never
+	// appear in the XML body sent to the appliance.
+	require.NotContains(t, string(fc.sent[0]), "_diffHash")
+}
+
+// TestNATRuleSvc_Push_StripsDiffHashFromHandEditedDraft is the defense-in-
+// depth regression for parseAndValidateNATRuleBody: even if a draft on disk
+// already has a `_diffHash` entry, the push must not include it in the XML
+// envelope.
+func TestNATRuleSvc_Push_StripsDiffHashFromHandEditedDraft(t *testing.T) {
+	body := map[string]any{
+		"Name": "X", "Status": "Enable", "IPFamily": "IPv4",
+	}
+	svc, fc, _ := newNATSvcPull(t, body)
+	pull, err := svc.Pull(context.Background(), "home", "X")
+	require.NoError(t, err)
+
+	d, err := draft.ReadDraft(pull.DraftPath)
+	require.NoError(t, err)
+	d.Body = append(d.Body, []byte("_diffHash: deadbeef\n")...)
+	require.NoError(t, draft.WriteDraft(pull.DraftPath, d))
+
+	_, err = svc.Push(context.Background(), "home", "X", false, false)
+	require.NoError(t, err)
+	require.Len(t, fc.sent, 1)
+	require.NotContains(t, string(fc.sent[0]), "_diffHash")
 }
 
 func TestNATRuleSvc_Push_DiffHashMismatch_Rejects(t *testing.T) {
