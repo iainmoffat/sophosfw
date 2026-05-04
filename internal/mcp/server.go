@@ -29,18 +29,20 @@ type Deps struct {
 
 // Server wraps an sdk-mcp Server and the project Deps.
 type Server struct {
-	deps Deps
-	impl *sdkmcp.Server
+	deps    Deps
+	impl    *sdkmcp.Server
+	version string
 }
 
 // NewServer constructs the MCP server with all read-only tools registered.
-// version becomes the Server.Version field reported during the MCP handshake.
+// version becomes the Server.Version field reported during the MCP handshake
+// and is also baked into snapshot _meta.yaml when backup_create is invoked.
 func NewServer(version string, d Deps) *Server {
 	impl := sdkmcp.NewServer(&sdkmcp.Implementation{
 		Name:    "sophosfw",
 		Version: version,
 	}, nil)
-	s := &Server{deps: d, impl: impl}
+	s := &Server{deps: d, impl: impl, version: version}
 	s.registerAll()
 	return s
 }
@@ -83,4 +85,5 @@ func (s *Server) registerAll() {
 	s.registerServiceGroup()
 	s.registerFirewallRule()
 	s.registerNATRule()
+	s.registerBackup()
 }
