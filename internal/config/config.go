@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
 const (
@@ -42,10 +46,20 @@ type Profile struct {
 
 // Config is the top-level config.yaml shape.
 type Config struct {
-	Version        int                `yaml:"version"`
-	CurrentProfile string             `yaml:"currentProfile,omitempty"`
-	Defaults       Defaults           `yaml:"defaults"`
-	Profiles       map[string]Profile `yaml:"profiles"`
+	Version        int                 `yaml:"version"`
+	CurrentProfile string              `yaml:"currentProfile,omitempty"`
+	Defaults       Defaults            `yaml:"defaults"`
+	Profiles       map[string]Profile  `yaml:"profiles"`
+	ProfileSets    map[string][]string `yaml:"profileSets,omitempty"`
+}
+
+// profileNameRE matches the allowlist for profile and profile-set names:
+// non-empty A-Za-z0-9_- (same as internal/draft/paths.go).
+var profileNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validProfileSetName reports whether name matches the profile-name allowlist.
+func validProfileSetName(name string) bool {
+	return profileNameRE.MatchString(name)
 }
 
 // New returns a Config populated with defaults.
@@ -87,7 +101,33 @@ func Load(baseDir string) (*Config, error) {
 	if c.Version == 0 {
 		c.Version = 1
 	}
+	if err := c.validate(); err != nil {
+		return nil, fmt.Errorf("config: validate %s: %w", path, err)
+	}
 	return c, nil
+}
+
+// validate checks invariants that aren't enforceable by the YAML schema alone.
+// Today: ProfileSets entries must satisfy the allowlist, must not collide with
+// a profile name, and every member must reference an existing profile.
+//
+// All errors are wrapped with sophos.ErrInvalidRequest so callers can match
+// with errors.Is.
+func (c *Config) validate() error {
+	for name, members := range c.ProfileSets {
+		if !validProfileSetName(name) {
+			return fmt.Errorf("%w: invalid profile set name %q (allowed: A-Za-z0-9_-)", sophos.ErrInvalidRequest, name)
+		}
+		if _, collides := c.Profiles[name]; collides {
+			return fmt.Errorf("%w: profile set name %q collides with profile name", sophos.ErrInvalidRequest, name)
+		}
+		for _, m := range members {
+			if _, ok := c.Profiles[m]; !ok {
+				return fmt.Errorf("%w: profile %q referenced by set %q does not exist", sophos.ErrInvalidRequest, m, name)
+			}
+		}
+	}
+	return nil
 }
 
 // Save writes the config (atomic rename) and ensures the profile dir exists.
@@ -170,6 +210,88 @@ func (c *Config) AuditLogEnabled() bool {
 		return true
 	}
 	return *c.Defaults.AuditLog
+}
+
+// AddProfileSet inserts (or overwrites) a named profile group. The name must
+// satisfy the profile-name allowlist, must not collide with an existing
+// profile name, and every member must reference an existing profile. The
+// supplied members slice is copied; the caller may mutate it after the call.
+func (c *Config) AddProfileSet(name string, members []string) error {
+	if !validProfileSetName(name) {
+		return fmt.Errorf("%w: invalid profile set name %q (allowed: A-Za-z0-9_-)", sophos.ErrInvalidRequest, name)
+	}
+	if _, exists := c.Profiles[name]; exists {
+		return fmt.Errorf("%w: profile set name %q collides with profile name", sophos.ErrInvalidRequest, name)
+	}
+	for _, m := range members {
+		if _, ok := c.Profiles[m]; !ok {
+			return fmt.Errorf("%w: profile %q referenced by set %q does not exist", sophos.ErrInvalidRequest, m, name)
+		}
+	}
+	if c.ProfileSets == nil {
+		c.ProfileSets = map[string][]string{}
+	}
+	c.ProfileSets[name] = append([]string(nil), members...)
+	return nil
+}
+
+// RemoveProfileSet deletes a named profile group. Errors if no such group
+// exists.
+func (c *Config) RemoveProfileSet(name string) error {
+	if _, ok := c.ProfileSets[name]; !ok {
+		return fmt.Errorf("%w: profile set %q not found", sophos.ErrInvalidRequest, name)
+	}
+	delete(c.ProfileSets, name)
+	return nil
+}
+
+// ResolveProfileSet maps a --profile-set flag value to an ordered list of
+// profile names. Three forms are accepted:
+//
+//   - bare set name      → expand to set members (in stored order)
+//   - bare profile name  → single-element slice
+//   - CSV of profile names (NOT set names) → multi-element slice with
+//     duplicates removed; sets-of-sets are explicitly rejected.
+//
+// All errors are wrapped with sophos.ErrInvalidRequest.
+func (c *Config) ResolveProfileSet(value string) ([]string, error) {
+	if value == "" {
+		return nil, fmt.Errorf("%w: empty profile-set value", sophos.ErrInvalidRequest)
+	}
+	parts := strings.Split(value, ",")
+	if len(parts) == 1 {
+		single := strings.TrimSpace(parts[0])
+		if single == "" {
+			return nil, fmt.Errorf("%w: empty profile-set value", sophos.ErrInvalidRequest)
+		}
+		if members, ok := c.ProfileSets[single]; ok {
+			return append([]string(nil), members...), nil
+		}
+		if _, ok := c.Profiles[single]; ok {
+			return []string{single}, nil
+		}
+		return nil, fmt.Errorf("%w: unknown profile or profile set %q", sophos.ErrInvalidRequest, single)
+	}
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		n := strings.TrimSpace(p)
+		if n == "" {
+			return nil, fmt.Errorf("%w: empty entry in profile CSV", sophos.ErrInvalidRequest)
+		}
+		if _, isSet := c.ProfileSets[n]; isSet {
+			return nil, fmt.Errorf("%w: CSV entry %q is a profile set; use the set name alone, not in a CSV", sophos.ErrInvalidRequest, n)
+		}
+		if _, ok := c.Profiles[n]; !ok {
+			return nil, fmt.Errorf("%w: profile %q not found", sophos.ErrInvalidRequest, n)
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 // DefaultBaseDir returns the conventional config dir under $XDG_CONFIG_HOME
