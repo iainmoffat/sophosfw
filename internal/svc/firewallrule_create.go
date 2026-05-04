@@ -199,7 +199,7 @@ func (s *FirewallRuleSvc) CreateInline(ctx context.Context, profileName, ruleNam
 	if perr != nil {
 		return nil, perr
 	}
-	inner, perr := marshalFirewallRule(body)
+	inner, perr := marshalObjectBody("FirewallRule", body)
 	if perr != nil {
 		return nil, perr
 	}

@@ -323,7 +323,7 @@ func (s *NATRuleSvc) Push(ctx context.Context, profileName, ruleName string, ign
 	if perr != nil {
 		return nil, perr
 	}
-	inner, perr := marshalNATRule(parsed)
+	inner, perr := marshalObjectBody("NATRule", parsed)
 	if perr != nil {
 		return nil, perr
 	}
@@ -428,20 +428,6 @@ func parseAndValidateNATRuleBody(body []byte) (map[string]any, error) {
 		}
 	}
 	return m, nil
-}
-
-// marshalNATRule converts the parsed rule body to XML wrapped in
-// <NATRule>...</NATRule>. Lower-level helpers (writeMapChildren,
-// writeKeyValue, writeOpen, writeClose, validateXMLName) live in
-// firewallrule_pull.go and are tag-agnostic; reused as-is.
-func marshalNATRule(rule map[string]any) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteString("<NATRule>")
-	if err := writeMapChildren(&buf, rule); err != nil {
-		return nil, err
-	}
-	buf.WriteString("</NATRule>")
-	return buf.Bytes(), nil
 }
 
 // Delete removes a NATRule by name. Same semantics as FirewallRuleSvc.Delete.
@@ -633,7 +619,7 @@ func (s *NATRuleSvc) UpdateInline(ctx context.Context, profileName, ruleName str
 	if perr != nil {
 		return nil, perr
 	}
-	inner, perr := marshalNATRule(body)
+	inner, perr := marshalObjectBody("NATRule", body)
 	if perr != nil {
 		return nil, perr
 	}

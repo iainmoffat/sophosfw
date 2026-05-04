@@ -329,7 +329,7 @@ func TestMarshalNATRule_TagWrapper(t *testing.T) {
 	rule := map[string]any{
 		"Name": "X", "Status": "Enable",
 	}
-	out, err := marshalNATRule(rule)
+	out, err := marshalObjectBody("NATRule", rule)
 	require.NoError(t, err)
 	s := string(out)
 	require.True(t, strings.HasPrefix(s, "<NATRule>"))

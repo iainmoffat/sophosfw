@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -478,7 +477,7 @@ func (s *FirewallRuleSvc) Push(ctx context.Context, profileName, ruleName string
 	if err != nil {
 		return nil, err
 	}
-	inner, err := marshalFirewallRule(parsed)
+	inner, err := marshalObjectBody("FirewallRule", parsed)
 	if err != nil {
 		return nil, err
 	}
@@ -590,95 +589,6 @@ func parseAndValidateRuleBody(body []byte) (map[string]any, error) {
 		}
 	}
 	return m, nil
-}
-
-// validXMLName is the allowlist regex for legal XML element names per the spec.
-var validXMLName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]*$`)
-
-// validateXMLName checks if a string is a valid XML element name.
-func validateXMLName(name string) error {
-	if !validXMLName.MatchString(name) {
-		return fmt.Errorf("%w: invalid XML element name %q", sophos.ErrInvalidRequest, name)
-	}
-	return nil
-}
-
-// marshalFirewallRule converts the parsed rule body to XML wrapped in
-// <FirewallRule>...</FirewallRule>.
-func marshalFirewallRule(rule map[string]any) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteString("<FirewallRule>")
-	if err := writeMapChildren(&buf, rule); err != nil {
-		return nil, err
-	}
-	buf.WriteString("</FirewallRule>")
-	return buf.Bytes(), nil
-}
-
-func writeMapChildren(buf *bytes.Buffer, m map[string]any) error {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if err := writeKeyValue(buf, k, m[k]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeKeyValue(buf *bytes.Buffer, key string, val any) error {
-	if err := validateXMLName(key); err != nil {
-		return err
-	}
-	switch v := val.(type) {
-	case nil:
-		return nil
-	case string:
-		writeOpen(buf, key)
-		if err := xml.EscapeText(buf, []byte(v)); err != nil {
-			return err
-		}
-		writeClose(buf, key)
-	case bool:
-		writeOpen(buf, key)
-		fmt.Fprintf(buf, "%t", v)
-		writeClose(buf, key)
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-		writeOpen(buf, key)
-		fmt.Fprintf(buf, "%v", v)
-		writeClose(buf, key)
-	case map[string]any:
-		writeOpen(buf, key)
-		if err := writeMapChildren(buf, v); err != nil {
-			return err
-		}
-		writeClose(buf, key)
-	case []any:
-		// Emit one <key>VAL</key> per item.
-		for _, item := range v {
-			if err := writeKeyValue(buf, key, item); err != nil {
-				return err
-			}
-		}
-	default:
-		return fmt.Errorf("unsupported value type for key %q: %T", key, val)
-	}
-	return nil
-}
-
-func writeOpen(buf *bytes.Buffer, key string) {
-	buf.WriteString("<")
-	buf.WriteString(key)
-	buf.WriteString(">")
-}
-
-func writeClose(buf *bytes.Buffer, key string) {
-	buf.WriteString("</")
-	buf.WriteString(key)
-	buf.WriteString(">")
 }
 
 // Delete removes a FirewallRule from the appliance, enforcing expectedHash
@@ -886,7 +796,7 @@ func (s *FirewallRuleSvc) UpdateInline(ctx context.Context, profileName, ruleNam
 	if perr != nil {
 		return nil, perr
 	}
-	inner, perr := marshalFirewallRule(body)
+	inner, perr := marshalObjectBody("FirewallRule", body)
 	if perr != nil {
 		return nil, perr
 	}

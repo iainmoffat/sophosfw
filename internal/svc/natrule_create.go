@@ -180,7 +180,7 @@ func (s *NATRuleSvc) CreateInline(ctx context.Context, profileName, ruleName str
 	if perr != nil {
 		return nil, perr
 	}
-	inner, perr := marshalNATRule(body)
+	inner, perr := marshalObjectBody("NATRule", body)
 	if perr != nil {
 		return nil, perr
 	}

@@ -524,7 +524,7 @@ func TestMarshalFirewallRule_NumericTypes(t *testing.T) {
 		"Float64":   float64(5.5),
 		"BoolVal":   true,
 	}
-	out, err := marshalFirewallRule(rule)
+	out, err := marshalObjectBody("FirewallRule", rule)
 	require.NoError(t, err)
 	s := string(out)
 	require.Contains(t, s, "<IntVal>42</IntVal>")
