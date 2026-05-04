@@ -412,6 +412,85 @@ func NATRulePushEnvelope(r *svc.NATRulePushResult) ([]byte, error) {
 	return marshalEnvelope("sophosfw.v1.natRulePush", payload)
 }
 
+// VPNIPsecListEnvelope renders sophosfw.v1.vpnIPsecList.
+func VPNIPsecListEnvelope(profile string, count int, items []map[string]any) ([]byte, error) {
+	return marshalEnvelope("sophosfw.v1.vpnIPsecList", map[string]any{
+		"profile": profile,
+		"xmlTag":  "VPNIPsecConnection",
+		"count":   count,
+		"items":   items,
+	})
+}
+
+// VPNIPsecEnvelope renders sophosfw.v1.vpnIPsec.
+func VPNIPsecEnvelope(item map[string]any) ([]byte, error) {
+	return marshalEnvelope("sophosfw.v1.vpnIPsec", item)
+}
+
+// VPNIPsecPullEnvelope renders sophosfw.v1.vpnIPsecPull.
+func VPNIPsecPullEnvelope(r *svc.VPNIPsecPullResult) ([]byte, error) {
+	refs := make([]map[string]any, 0, len(r.References))
+	for _, rs := range r.References {
+		refs = append(refs, map[string]any{"type": rs.Type, "names": rs.Names})
+	}
+	payload := map[string]any{
+		"profile":      r.Profile,
+		"tunnel":       r.Tunnel,
+		"draftPath":    r.DraftPath,
+		"snapshotPath": r.SnapshotPath,
+		"diffHash":     r.DiffHash,
+		"references":   refs,
+	}
+	return marshalEnvelope("sophosfw.v1.vpnIPsecPull", payload)
+}
+
+// VPNIPsecDiffEnvelope renders sophosfw.v1.vpnIPsecDiff.
+func VPNIPsecDiffEnvelope(r *svc.VPNIPsecDiffResult) ([]byte, error) {
+	entries := make([]map[string]any, 0, len(r.StructuredDiff))
+	for _, e := range r.StructuredDiff {
+		entries = append(entries, map[string]any{
+			"path":     e.Path,
+			"op":       e.Op,
+			"oldValue": e.OldValue,
+			"newValue": e.NewValue,
+		})
+	}
+	payload := map[string]any{
+		"profile":     r.Profile,
+		"tunnel":      r.Tunnel,
+		"hasChanges":  r.HasChanges,
+		"unifiedDiff": r.UnifiedDiff,
+		"diffEntries": entries,
+	}
+	return marshalEnvelope("sophosfw.v1.vpnIPsecDiff", payload)
+}
+
+// VPNIPsecPushEnvelope renders sophosfw.v1.vpnIPsecPush.
+func VPNIPsecPushEnvelope(r *svc.VPNIPsecPushResult) ([]byte, error) {
+	payload := map[string]any{
+		"profile":   r.Profile,
+		"tunnel":    r.Tunnel,
+		"operation": r.Operation,
+		"applied":   !r.DryRun,
+		"dryRun":    r.DryRun,
+	}
+	if r.DryRun && r.Preview != nil {
+		payload["preview"] = map[string]any{
+			"mutating":       r.Preview.Mutating,
+			"verbs":          r.Preview.Verbs,
+			"redactedXml":    r.Preview.RedactedXML,
+			"wouldSendBytes": r.Preview.WouldSendBytes,
+		}
+	}
+	if !r.DryRun {
+		payload["newDiffHash"] = r.NewDiffHash
+		if r.Item != nil {
+			payload["item"] = r.Item
+		}
+	}
+	return marshalEnvelope("sophosfw.v1.vpnIPsecPush", payload)
+}
+
 // marshalEnvelope is the shared writer used by all envelope helpers. It
 // produces the same indent-2 JSON that WriteJSON does, with the schema
 // embedded as the first field.
