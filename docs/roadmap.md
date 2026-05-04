@@ -16,6 +16,7 @@
 - Phase 12 — Mutating coverage breadth (host groups, FQDN, MAC, services) (complete; v0.10.0)
 - Phase 13 — Backup + drift detection (complete; v0.11.0)
 - Phase 14 — Multi-firewall fan-out (complete; v0.12.0)
+- Phase 15 — Site-to-site IPsec VPN (complete; v0.13.0)
 
 ## Phase 13.x — Drift follow-ups (deferred)
 
