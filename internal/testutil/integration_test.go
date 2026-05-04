@@ -539,3 +539,127 @@ func TestIntegration_MCPFirewallRuleUpdate_DryRun(t *testing.T) {
 	tcUpdate := updateResult.Content[0].(*sdkmcp.TextContent)
 	require.Contains(t, tcUpdate.Text, `"schema": "sophosfw.v1.preview"`)
 }
+
+// mcpDryRunCreateHarness wires an in-memory MCP transport against the
+// configured profile and invokes a single create-style tool with
+// confirm: true, dryRun: true. Asserts the response is a preview
+// envelope. Used by the per-type create dry-run smokes below.
+func mcpDryRunCreateHarness(t *testing.T, toolName, name string, body map[string]any) {
+	t.Helper()
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config: cfg, Creds: store, Catalog: cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profileName,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: toolName,
+		Arguments: map[string]any{
+			"name":    name,
+			"body":    body,
+			"confirm": true,
+			"dryRun":  true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "tool returned error envelope: %+v", result.Content)
+	tc, ok := result.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+	require.Contains(t, tc.Text, `"schema": "sophosfw.v1.preview"`)
+}
+
+func TestIntegration_MCPHostGroupCreate_DryRun(t *testing.T) {
+	name := os.Getenv("SOPHOSFW_TEST_HOSTGROUP_NAME")
+	if name == "" {
+		t.Skip("set SOPHOSFW_TEST_HOSTGROUP_NAME to a name not in use on the testvm")
+	}
+	mcpDryRunCreateHarness(t, "host_group_create", name, map[string]any{
+		"Name":     name,
+		"IPFamily": "IPv4",
+	})
+}
+
+func TestIntegration_MCPFQDNHostCreate_DryRun(t *testing.T) {
+	name := os.Getenv("SOPHOSFW_TEST_FQDNHOST_NAME")
+	if name == "" {
+		t.Skip("set SOPHOSFW_TEST_FQDNHOST_NAME to a name not in use on the testvm")
+	}
+	mcpDryRunCreateHarness(t, "host_fqdn_create", name, map[string]any{
+		"Name":     name,
+		"FQDN":     "example.com",
+		"IPFamily": "IPv4",
+	})
+}
+
+func TestIntegration_MCPFQDNHostGroupCreate_DryRun(t *testing.T) {
+	name := os.Getenv("SOPHOSFW_TEST_FQDNHOSTGROUP_NAME")
+	if name == "" {
+		t.Skip("set SOPHOSFW_TEST_FQDNHOSTGROUP_NAME to a name not in use on the testvm")
+	}
+	mcpDryRunCreateHarness(t, "host_fqdn_group_create", name, map[string]any{
+		"Name":     name,
+		"IPFamily": "IPv4",
+	})
+}
+
+func TestIntegration_MCPMACHostCreate_DryRun(t *testing.T) {
+	name := os.Getenv("SOPHOSFW_TEST_MACHOST_NAME")
+	if name == "" {
+		t.Skip("set SOPHOSFW_TEST_MACHOST_NAME to a name not in use on the testvm")
+	}
+	mcpDryRunCreateHarness(t, "host_mac_create", name, map[string]any{
+		"Name":       name,
+		"Type":       "MACAddress",
+		"MACAddress": "00:11:22:33:44:55",
+	})
+}
+
+func TestIntegration_MCPServicesCreate_DryRun(t *testing.T) {
+	name := os.Getenv("SOPHOSFW_TEST_SERVICES_NAME")
+	if name == "" {
+		t.Skip("set SOPHOSFW_TEST_SERVICES_NAME to a name not in use on the testvm")
+	}
+	mcpDryRunCreateHarness(t, "service_create", name, map[string]any{
+		"Name": name,
+		"Type": "TCPorUDP",
+		"ServiceDetails": map[string]any{
+			"ServiceDetail": map[string]any{
+				"Protocol":        "TCP",
+				"SourcePort":      "1:65535",
+				"DestinationPort": "8080",
+			},
+		},
+	})
+}
+
+func TestIntegration_MCPServiceGroupCreate_DryRun(t *testing.T) {
+	name := os.Getenv("SOPHOSFW_TEST_SERVICEGROUP_NAME")
+	if name == "" {
+		t.Skip("set SOPHOSFW_TEST_SERVICEGROUP_NAME to a name not in use on the testvm")
+	}
+	mcpDryRunCreateHarness(t, "service_group_create", name, map[string]any{
+		"Name": name,
+	})
+}
