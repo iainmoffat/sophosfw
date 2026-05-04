@@ -51,8 +51,8 @@ func TestServer_RegistersAllTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 51,
-		"expected 51 tools, got %d", len(result.Tools))
+	require.Len(t, result.Tools, 52,
+		"expected 52 tools, got %d", len(result.Tools))
 
 	names := make([]string, len(result.Tools))
 	for i, tool := range result.Tools {
@@ -60,6 +60,7 @@ func TestServer_RegistersAllTools(t *testing.T) {
 	}
 	for _, want := range []string{
 		"auth_status", "auth_test", "auth_profile_list", "auth_profile_current",
+		"auth_profile_set_list",
 		"object_list", "object_get", "object_search", "object_usage",
 		"raw_get",
 		"host_ip_list", "host_ip_show", "host_ip_search", "host_ip_usage",

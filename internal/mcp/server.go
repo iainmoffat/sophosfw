@@ -86,4 +86,5 @@ func (s *Server) registerAll() {
 	s.registerFirewallRule()
 	s.registerNATRule()
 	s.registerBackup()
+	s.registerProfileSet()
 }
