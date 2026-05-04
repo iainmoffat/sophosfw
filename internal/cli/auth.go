@@ -137,6 +137,7 @@ func newAuthProfileCmd(d RootDeps) *cobra.Command {
 		newProfileListCmd(d),
 		newProfileUseCmd(d),
 		newProfileRemoveCmd(d),
+		newProfileSetCmd(d),
 	)
 	return cmd
 }
