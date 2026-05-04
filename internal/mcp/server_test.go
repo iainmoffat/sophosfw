@@ -51,8 +51,8 @@ func TestServer_RegistersAllTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 36,
-		"expected 36 tools, got %d", len(result.Tools))
+	require.Len(t, result.Tools, 39,
+		"expected 39 tools, got %d", len(result.Tools))
 
 	names := make([]string, len(result.Tools))
 	for i, tool := range result.Tools {
@@ -66,6 +66,7 @@ func TestServer_RegistersAllTools(t *testing.T) {
 		"host_ip_create", "host_ip_update", "host_ip_delete",
 		"host_group_create", "host_group_update", "host_group_delete",
 		"host_fqdn_create", "host_fqdn_update", "host_fqdn_delete",
+		"host_fqdn_group_create", "host_fqdn_group_update", "host_fqdn_group_delete",
 		"service_list", "service_show", "service_search", "service_usage",
 		"firewall_rule_list", "firewall_rule_show",
 		"firewall_rule_create", "firewall_rule_update", "firewall_rule_delete",
