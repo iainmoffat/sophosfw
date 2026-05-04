@@ -1043,3 +1043,196 @@ func TestIntegration_Fanout_DriftAcrossSet(t *testing.T) {
 		require.Equal(t, "ok", r["status"], "expected ok status, got %v", r)
 	}
 }
+
+// mcpListSmokeHarness wires an in-memory MCP transport against the
+// configured profile and invokes a single list-style tool with no
+// arguments. Asserts the response is a JSON envelope with the given
+// schema and that count is a non-negative number. Used by the
+// Phase 15 read-only VPN smokes below.
+func mcpListSmokeHarness(t *testing.T, toolName, expectedSchema string) {
+	t.Helper()
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config: cfg, Creds: store, Catalog: cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profileName,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name:      toolName,
+		Arguments: map[string]any{},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "tool returned error envelope: %+v", result.Content)
+	tc, ok := result.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+
+	var env map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &env))
+	require.Equal(t, expectedSchema, env["schema"], "unexpected schema in list response")
+	// count should be a non-negative number; JSON numbers decode as float64.
+	cn, ok := env["count"].(float64)
+	require.True(t, ok, "count field missing or wrong type: %v", env["count"])
+	require.GreaterOrEqual(t, int(cn), 0)
+}
+
+// TestIntegration_VPNIPsec_List_ReturnsValidShape exercises vpn_ipsec_list
+// against the live testvm and asserts the response is a sophosfw.v1.vpnIPsecList
+// envelope with a non-negative count. Phase 15 T10 read-only smoke.
+func TestIntegration_VPNIPsec_List_ReturnsValidShape(t *testing.T) {
+	mcpListSmokeHarness(t, "vpn_ipsec_list", "sophosfw.v1.vpnIPsecList")
+}
+
+// TestIntegration_IPsecPolicy_List_ReturnsValidShape exercises vpn_policy_list
+// against the live testvm and asserts the response is a sophosfw.v1.objectList
+// envelope with a non-negative count. Phase 15 T10 read-only smoke.
+func TestIntegration_IPsecPolicy_List_ReturnsValidShape(t *testing.T) {
+	mcpListSmokeHarness(t, "vpn_policy_list", "sophosfw.v1.objectList")
+}
+
+// TestIntegration_VPNProfile_List_ReturnsValidShape exercises vpn_ike_profile_list
+// against the live testvm and asserts the response is a sophosfw.v1.objectList
+// envelope with a non-negative count. Phase 15 T10 read-only smoke.
+func TestIntegration_VPNProfile_List_ReturnsValidShape(t *testing.T) {
+	mcpListSmokeHarness(t, "vpn_ike_profile_list", "sophosfw.v1.objectList")
+}
+
+// TestIntegration_VPNIPsec_ObjectGet_InjectsDiffHash fetches a
+// VPNIPsecConnection via the generic object_get MCP tool and asserts
+// the response body includes the _diffHash field that update/delete
+// require. Skipped unless SOPHOSFW_TEST_VPN_TUNNEL_NAME points at a
+// real tunnel on the testvm.
+func TestIntegration_VPNIPsec_ObjectGet_InjectsDiffHash(t *testing.T) {
+	tunnelName := os.Getenv("SOPHOSFW_TEST_VPN_TUNNEL_NAME")
+	if tunnelName == "" {
+		t.Skip("set SOPHOSFW_TEST_VPN_TUNNEL_NAME to a real tunnel name")
+	}
+
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config: cfg, Creds: store, Catalog: cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profileName,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "object_get",
+		Arguments: map[string]any{
+			"tag":  "VPNIPsecConnection",
+			"name": tunnelName,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, "object_get returned error envelope: %+v", result.Content)
+	tc, ok := result.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+
+	var env map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &env))
+	// The object envelope wraps the record under a known top-level key.
+	// Accept either flat or nested shape: walk the envelope until we
+	// find a map containing _diffHash.
+	require.True(t, hasDiffHash(env),
+		"expected _diffHash somewhere in object_get response; got: %s", tc.Text)
+}
+
+// hasDiffHash recursively walks a decoded JSON value looking for a
+// non-empty string field named "_diffHash".
+func hasDiffHash(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		if h, ok := x["_diffHash"].(string); ok && h != "" {
+			return true
+		}
+		for _, child := range x {
+			if hasDiffHash(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if hasDiffHash(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestIntegration_MCPVPNIPsecCreate_DryRun exercises vpn_ipsec_create
+// with confirm: true, dryRun: true and a minimal valid body
+// (Name, Status, ConnectionType per requiredVPNIPsecFields). Asserts
+// the response is a sophosfw.v1.preview envelope (single-profile path,
+// not a fanoutResult). If the live API rejects with "Operation could
+// not be performed on Entity", the API-rejection fallback per Phase 15
+// spec section 9 applies — drop this type to read-only.
+func TestIntegration_MCPVPNIPsecCreate_DryRun(t *testing.T) {
+	mcpDryRunCreateHarness(t, "vpn_ipsec_create", "sophosfw-test-do-not-create", map[string]any{
+		"Name":           "sophosfw-test-do-not-create",
+		"Status":         "Disable",
+		"ConnectionType": "SiteToSite",
+	})
+}
+
+// TestIntegration_MCPIPsecPolicyCreate_DryRun exercises vpn_policy_create
+// with confirm: true, dryRun: true and a minimal valid body
+// (Name per requiredIPsecPolicyFields). Asserts the response is a
+// sophosfw.v1.preview envelope.
+func TestIntegration_MCPIPsecPolicyCreate_DryRun(t *testing.T) {
+	mcpDryRunCreateHarness(t, "vpn_policy_create", "sophosfw-test-do-not-create", map[string]any{
+		"Name": "sophosfw-test-do-not-create",
+	})
+}
+
+// TestIntegration_MCPVPNProfileCreate_DryRun exercises vpn_ike_profile_create
+// with confirm: true, dryRun: true and a minimal valid body
+// (Name, AuthenticationMode per requiredVPNProfileFields). Asserts
+// the response is a sophosfw.v1.preview envelope.
+func TestIntegration_MCPVPNProfileCreate_DryRun(t *testing.T) {
+	mcpDryRunCreateHarness(t, "vpn_ike_profile_create", "sophosfw-test-do-not-create", map[string]any{
+		"Name":               "sophosfw-test-do-not-create",
+		"AuthenticationMode": "PresharedKey",
+	})
+}
