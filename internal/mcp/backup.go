@@ -20,10 +20,11 @@ import (
 
 // BackupCreateInput is the input schema for backup_create.
 type BackupCreateInput struct {
-	Profile string   `json:"profile,omitempty" jsonschema_description:"Profile name; defaults to server default"`
-	Out     string   `json:"out,omitempty" jsonschema_description:"snapshot directory; default: <baseDir>/profiles/<profile>/backups/<utc>"`
-	Types   []string `json:"types,omitempty" jsonschema_description:"catalog tags to include (default: all). Mutually exclusive with exclude."`
-	Exclude []string `json:"exclude,omitempty" jsonschema_description:"catalog tags to skip. Mutually exclusive with types."`
+	Profile    string   `json:"profile,omitempty" jsonschema_description:"Profile name; defaults to server default"`
+	ProfileSet string   `json:"profileSet,omitempty" jsonschema_description:"named profile group OR comma-separated profile list; mutually exclusive with profile. When set, snapshots are produced for every profile in the set; result is a sophosfw.v1.fanoutResult envelope."`
+	Out        string   `json:"out,omitempty" jsonschema_description:"snapshot directory; default: <baseDir>/profiles/<profile>/backups/<utc>"`
+	Types      []string `json:"types,omitempty" jsonschema_description:"catalog tags to include (default: all). Mutually exclusive with exclude."`
+	Exclude    []string `json:"exclude,omitempty" jsonschema_description:"catalog tags to skip. Mutually exclusive with types."`
 }
 
 // BackupListInput is the input schema for backup_list.
@@ -33,11 +34,12 @@ type BackupListInput struct {
 
 // DriftCheckInput is the input schema for drift_check.
 type DriftCheckInput struct {
-	Profile  string   `json:"profile,omitempty" jsonschema_description:"Profile name; defaults to server default"`
-	Snapshot string   `json:"snapshot,omitempty" jsonschema_description:"snapshot directory path; mutually exclusive with latest"`
-	Latest   bool     `json:"latest,omitempty" jsonschema_description:"use most recent snapshot under default location"`
-	Types    []string `json:"types,omitempty" jsonschema_description:"catalog tags to check (default: all in snapshot)"`
-	Force    bool     `json:"force,omitempty" jsonschema_description:"override profile-mismatch refusal"`
+	Profile    string   `json:"profile,omitempty" jsonschema_description:"Profile name; defaults to server default"`
+	ProfileSet string   `json:"profileSet,omitempty" jsonschema_description:"named profile group OR comma-separated profile list; mutually exclusive with profile. When set, drift is checked for every profile in the set; result is a sophosfw.v1.fanoutResult envelope."`
+	Snapshot   string   `json:"snapshot,omitempty" jsonschema_description:"snapshot directory path; mutually exclusive with latest"`
+	Latest     bool     `json:"latest,omitempty" jsonschema_description:"use most recent snapshot under default location"`
+	Types      []string `json:"types,omitempty" jsonschema_description:"catalog tags to check (default: all in snapshot)"`
+	Force      bool     `json:"force,omitempty" jsonschema_description:"override profile-mismatch refusal"`
 }
 
 func (s *Server) registerBackup() {
@@ -73,20 +75,38 @@ func (s *Server) backupSvc() *svc.BackupSvc {
 }
 
 func (s *Server) handleBackupCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, in BackupCreateInput) (*sdkmcp.CallToolResult, any, error) {
-	profile := s.resolveProfile(in.Profile)
-	result, err := s.backupSvc().Create(ctx, profile, svc.BackupCreateOptions{
+	profiles, err := s.resolveTargetProfilesMcp(in.Profile, in.ProfileSet)
+	if err != nil {
+		return s.errorEnvelopeResult(err, "")
+	}
+	opts := svc.BackupCreateOptions{
 		OutDir:  in.Out,
 		Types:   in.Types,
 		Exclude: in.Exclude,
-	})
-	if err != nil {
-		return s.errorEnvelopeResult(err, profile)
 	}
-	body, err := render.BackupCreateEnvelope(result)
-	if err != nil {
-		return s.errorEnvelopeResult(err, profile)
+	if len(profiles) == 1 {
+		result, err := s.backupSvc().Create(ctx, profiles[0], opts)
+		if err != nil {
+			return s.errorEnvelopeResult(err, profiles[0])
+		}
+		body, err := render.BackupCreateEnvelope(result)
+		if err != nil {
+			return s.errorEnvelopeResult(err, profiles[0])
+		}
+		return jsonResult(body)
 	}
-	return jsonResult(body)
+	// Fan-out: backup is a read-side op (no real "preflight" — snapshotting
+	// is itself the operation). Pre-flight phase is a cheap no-op so all
+	// per-profile work happens in the apply phase, sequentially with
+	// fail-fast.
+	op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+		if preflight {
+			return nil, nil
+		}
+		return s.backupSvc().Create(ctx, profile, opts)
+	}
+	fr := svc.Run(ctx, "backup_create", profiles, op, false)
+	return s.renderFanoutResult(fr)
 }
 
 func (s *Server) handleBackupList(_ context.Context, _ *sdkmcp.CallToolRequest, in BackupListInput) (*sdkmcp.CallToolResult, any, error) {
@@ -103,19 +123,36 @@ func (s *Server) handleBackupList(_ context.Context, _ *sdkmcp.CallToolRequest, 
 }
 
 func (s *Server) handleDriftCheck(ctx context.Context, _ *sdkmcp.CallToolRequest, in DriftCheckInput) (*sdkmcp.CallToolResult, any, error) {
-	profile := s.resolveProfile(in.Profile)
-	result, err := s.backupSvc().Drift(ctx, profile, svc.DriftOptions{
+	profiles, err := s.resolveTargetProfilesMcp(in.Profile, in.ProfileSet)
+	if err != nil {
+		return s.errorEnvelopeResult(err, "")
+	}
+	opts := svc.DriftOptions{
 		SnapshotPath: in.Snapshot,
 		Latest:       in.Latest,
 		Types:        in.Types,
 		Force:        in.Force,
-	})
-	if err != nil {
-		return s.errorEnvelopeResult(err, profile)
 	}
-	body, err := render.DriftEnvelope(result)
-	if err != nil {
-		return s.errorEnvelopeResult(err, profile)
+	if len(profiles) == 1 {
+		result, err := s.backupSvc().Drift(ctx, profiles[0], opts)
+		if err != nil {
+			return s.errorEnvelopeResult(err, profiles[0])
+		}
+		body, err := render.DriftEnvelope(result)
+		if err != nil {
+			return s.errorEnvelopeResult(err, profiles[0])
+		}
+		return jsonResult(body)
 	}
-	return jsonResult(body)
+	// Fan-out: drift is a read-side op. Pre-flight is a no-op; the apply
+	// phase per profile runs the actual comparison and captures the
+	// summary in ApplyResult.
+	op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+		if preflight {
+			return nil, nil
+		}
+		return s.backupSvc().Drift(ctx, profile, opts)
+	}
+	fr := svc.Run(ctx, "drift_check", profiles, op, false)
+	return s.renderFanoutResult(fr)
 }
