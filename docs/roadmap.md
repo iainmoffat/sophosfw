@@ -16,6 +16,29 @@
 - Phase 12 — Mutating coverage breadth (host groups, FQDN, MAC, services) (complete; v0.10.0)
 - Phase 13 — Backup + drift detection (complete; v0.11.0)
 
+## Phase 13.x — Drift follow-ups (deferred)
+
+Real-world finding from Phase 13 integration testing: Sophos firewalls
+auto-populate `FQDNHost` cache entries from DNS resolution, so routine
+`sophosfw drift` checks may report cache entries as added between
+snapshots taken minutes apart. Three follow-ups under consideration
+(none blocking):
+
+- **Documentation.** Add a paragraph to `sophosfw drift --help` and to
+  the README explaining the FQDNHost cache behavior and recommending
+  `--exclude FQDNHost` for routine config-only drift checks.
+- **`--exclude-dynamic` shortcut flag.** Convenience flag that maps to
+  a maintained list of known-dynamic types (initially `FQDNHost`).
+  Opt-in; preserves the safety default of "show everything".
+- **Per-type exit-code suppression.** Optional flag (e.g.
+  `--strict-types FirewallRule,NATRule,IPHost`) that exits 1 only when
+  changes appear in those types. Lets cron exit 0 unless real config
+  drifted. More aggressive — defer until real users ask.
+
+Tracking decision: surface the behavior loudly via documentation, then
+ship the `--exclude-dynamic` shortcut. Skip per-type exit-code
+suppression unless real cron usage shows the noise.
+
 ## Phase 3 — First-class read-only commands
 **Goal:** ergonomic wrappers over the catalog for high-traffic objects.
 **New commands:** host ip list/show/search/usage, service list/show/usage, firewall rule list/show, nat rule list/show.
