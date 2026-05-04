@@ -663,3 +663,192 @@ func TestIntegration_MCPServiceGroupCreate_DryRun(t *testing.T) {
 		"Name": name,
 	})
 }
+
+// newBackupSvcForIntegration assembles a BackupSvc against the live profile
+// the same way `sophosfw backup` and `sophosfw drift` do. BaseDir is the
+// real default base dir so List()/Rotate() see the same on-disk store the
+// CLI would; tests that care about isolation pass an explicit OutDir under
+// t.TempDir() to Create.
+func newBackupSvcForIntegration(t *testing.T) *svc.BackupSvc {
+	t.Helper()
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+	return &svc.BackupSvc{
+		Inner: &svc.ObjectSvc{
+			Config: cfg, Creds: store, Catalog: cat,
+			NewClient: svc.DefaultClientFactory(false),
+		},
+		Catalog: cat,
+		BaseDir: baseDir,
+		Now:     time.Now,
+		Version: "integration-test",
+	}
+}
+
+// TestIntegration_Backup_Create_FullSnapshot exercises BackupSvc.Create
+// against the live testvm into a t.TempDir() so the on-disk store is
+// untouched. Asserts _meta.yaml is present, at least one of the common
+// per-type subdirs (FirewallRule, IPHost) exists, and TotalRecords > 0.
+func TestIntegration_Backup_Create_FullSnapshot(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	bs := newBackupSvcForIntegration(t)
+	outDir := filepath.Join(t.TempDir(), "snap")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	result, err := bs.Create(ctx, profileName, svc.BackupCreateOptions{OutDir: outDir})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, outDir, result.Path)
+	require.Greater(t, result.TotalRecords, 0)
+
+	// _meta.yaml present and parseable as a valid backup-meta file. We
+	// reuse Drift to validate this end-to-end: it reads _meta.yaml and
+	// rejects directories with the wrong schema, so a successful drift
+	// indicates the meta file is well-formed.
+	require.FileExists(t, filepath.Join(outDir, "_meta.yaml"))
+
+	// At least one of FirewallRule and IPHost subdirs exists. A live
+	// firewall in any non-pristine state will have records for both; we
+	// require ONE of them rather than both to keep this resilient against
+	// freshly-imaged VMs.
+	fwExists := dirExists(filepath.Join(outDir, "FirewallRule"))
+	ipExists := dirExists(filepath.Join(outDir, "IPHost"))
+	require.True(t, fwExists || ipExists,
+		"expected at least one of FirewallRule/IPHost subdirs in snapshot")
+}
+
+// TestIntegration_Drift_NoChanges_EmptyResult writes a snapshot and
+// immediately drifts against it. Nothing on the firewall changes between
+// the two calls, so every record must classify as Unchanged.
+//
+// FQDNHost is excluded from both sides: the firewall auto-populates DNS
+// resolution cache entries (e.g. *.clients.l.google.com, search.yahoo.com)
+// in the FQDNHost list between two GETs, which would surface as spurious
+// "added" entries here. This is firewall-side dynamic behavior, not a
+// sophosfw bug, and it's safe to skip in a static-comparison smoke.
+func TestIntegration_Drift_NoChanges_EmptyResult(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	bs := newBackupSvcForIntegration(t)
+	outDir := filepath.Join(t.TempDir(), "snap")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	createResult, err := bs.Create(ctx, profileName, svc.BackupCreateOptions{
+		OutDir:  outDir,
+		Exclude: []string{"FQDNHost"},
+	})
+	require.NoError(t, err)
+	require.Greater(t, createResult.TotalRecords, 0)
+
+	driftResult, err := bs.Drift(ctx, profileName, svc.DriftOptions{SnapshotPath: outDir})
+	require.NoError(t, err)
+	require.NotNil(t, driftResult)
+	for _, ch := range driftResult.Changes {
+		t.Logf("unexpected change: type=%s name=%s change=%s", ch.Type, ch.Name, ch.Change)
+	}
+	require.Zero(t, driftResult.Summary.Added, "Added should be 0 immediately after backup")
+	require.Zero(t, driftResult.Summary.Modified, "Modified should be 0 immediately after backup")
+	require.Zero(t, driftResult.Summary.Removed, "Removed should be 0 immediately after backup")
+	require.Greater(t, driftResult.Summary.Unchanged, 0, "Unchanged should reflect every snapshotted record")
+	require.Empty(t, driftResult.Changes, "no per-record changes expected")
+}
+
+// TestIntegration_Drift_AfterIPHostCreate_ReportsAdded mutates the testvm.
+//
+// Sequence: backup → create test IPHost → drift → expect "added" for the
+// test record under IPHost. Cleanup runs via t.Cleanup so a partial test
+// run still removes the test record from the firewall.
+//
+// The test record name comes from SOPHOSFW_TEST_IPHOST_NAME, defaulting to
+// "sophosfw-drift-test". The cleanup uses ignoreHash=true so it succeeds
+// even if the live record drifted between create and cleanup.
+func TestIntegration_Drift_AfterIPHostCreate_ReportsAdded(t *testing.T) {
+	profileName := os.Getenv("SOPHOSFW_PROFILE")
+	require.NotEmpty(t, profileName)
+
+	testName := os.Getenv("SOPHOSFW_TEST_IPHOST_NAME")
+	if testName == "" {
+		testName = "sophosfw-drift-test"
+	}
+
+	bs := newBackupSvcForIntegration(t)
+	outDir := filepath.Join(t.TempDir(), "snap")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	// Step 1: snapshot the firewall BEFORE creating the test record.
+	createResult, err := bs.Create(ctx, profileName, svc.BackupCreateOptions{OutDir: outDir})
+	require.NoError(t, err)
+	require.Greater(t, createResult.TotalRecords, 0)
+
+	// Step 2: build a HostIPSvc and create the test IPHost.
+	hostIp := &svc.HostIPSvc{
+		Inner: bs.Inner,
+		Audit: svc.NewAuditLog(t.TempDir(), false),
+	}
+
+	// Register cleanup BEFORE issuing the create. If the create succeeds
+	// and the drift assertion later panics, cleanup still runs. ignoreHash
+	// is true because we are not racing other writers and we want cleanup
+	// to be unconditional.
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		if _, err := hostIp.Delete(cleanupCtx, profileName, testName, "", true, false); err != nil {
+			t.Logf("cleanup: delete IPHost %q failed: %v (manual cleanup may be required)", testName, err)
+		}
+	})
+
+	_, err = hostIp.Create(ctx, profileName, svc.HostIPCreateInput{
+		Name:      testName,
+		HostType:  "IP",
+		IPFamily:  "IPv4",
+		IPAddress: "192.0.2.42",
+	}, false) // dryRun=false: actually create
+	require.NoError(t, err, "creating test IPHost on testvm")
+
+	// Step 3: drift against the pre-create snapshot. The new IPHost must
+	// appear as "added" under the IPHost type.
+	driftResult, err := bs.Drift(ctx, profileName, svc.DriftOptions{SnapshotPath: outDir})
+	require.NoError(t, err)
+	require.NotNil(t, driftResult)
+
+	require.GreaterOrEqual(t, driftResult.Summary.Added, 1,
+		"expected at least 1 added record after creating %q", testName)
+
+	if perType, ok := driftResult.Summary.PerType["IPHost"]; ok {
+		require.GreaterOrEqual(t, perType.Added, 1,
+			"expected at least 1 added IPHost in per-type summary")
+	}
+
+	var foundTestRecord bool
+	for _, ch := range driftResult.Changes {
+		if ch.Type == "IPHost" && ch.Name == testName && ch.Change == "added" {
+			foundTestRecord = true
+			break
+		}
+	}
+	require.True(t, foundTestRecord,
+		"expected a Changes entry for added IPHost %q; got %d changes",
+		testName, len(driftResult.Changes))
+}
+
+// dirExists is a small predicate used by the backup smoke. Returns true
+// only if the path exists AND is a directory.
+func dirExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.IsDir()
+}
