@@ -2,10 +2,13 @@ package svc
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -256,4 +259,108 @@ func (s *BackupSvc) resolveTypes(want, exclude []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// BackupListEntry is one row in the result of BackupSvc.List.
+//
+// Path is the absolute snapshot directory; CreatedAt is parsed from the
+// snapshot's _meta.yaml; RecordCounts mirrors the per-type counts written
+// by Create.
+type BackupListEntry struct {
+	Path         string
+	CreatedAt    time.Time
+	RecordCounts map[string]int
+}
+
+// List enumerates valid snapshots under the active profile's backups
+// directory, newest-first by CreatedAt from _meta.yaml. It silently
+// skips directories whose name ends in ".partial" (left behind by a
+// failed Create) and any directory whose _meta.yaml is missing or
+// has the wrong schema (foreign content). A missing root directory
+// returns (nil, nil).
+func (s *BackupSvc) List(profileName string) ([]BackupListEntry, error) {
+	_, name, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+	root, err := draft.BackupRootDir(s.BaseDir, name)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []BackupListEntry
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".partial") {
+			continue
+		}
+		path := filepath.Join(root, e.Name())
+		meta, err := readBackupMeta(path)
+		if err != nil {
+			// Skip dirs without a valid _meta.yaml — could be foreign content.
+			continue
+		}
+		createdAt, _ := time.Parse(time.RFC3339, meta.CreatedAt)
+		out = append(out, BackupListEntry{
+			Path:         path,
+			CreatedAt:    createdAt,
+			RecordCounts: meta.RecordCounts,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt) // newest first
+	})
+	return out, nil
+}
+
+// readBackupMeta loads and validates the _meta.yaml at the root of a
+// snapshot directory. Returns an error if the file is missing, fails
+// to unmarshal, or has a schema string other than MetaSchemaName.
+func readBackupMeta(snapshotDir string) (*backupMeta, error) {
+	raw, err := os.ReadFile(filepath.Join(snapshotDir, "_meta.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	var m backupMeta
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	if m.Schema != MetaSchemaName {
+		return nil, fmt.Errorf("invalid schema %q", m.Schema)
+	}
+	return &m, nil
+}
+
+// Rotate deletes all snapshots beyond the keep most-recent for the
+// active profile, returning the absolute paths of the deleted dirs.
+// keep == 0 deletes every valid snapshot; negative values are an
+// invalid request. A failure mid-loop returns the set deleted so far.
+// .partial dirs are not touched (List filters them out).
+func (s *BackupSvc) Rotate(profileName string, keep int) ([]string, error) {
+	if keep < 0 {
+		return nil, fmt.Errorf("%w: --keep must be >= 0", sophos.ErrInvalidRequest)
+	}
+	entries, err := s.List(profileName)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) <= keep {
+		return nil, nil
+	}
+	var deleted []string
+	for _, e := range entries[keep:] {
+		if err := os.RemoveAll(e.Path); err != nil {
+			return deleted, err
+		}
+		deleted = append(deleted, e.Path)
+	}
+	return deleted, nil
 }

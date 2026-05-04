@@ -331,6 +331,159 @@ func TestBackupSvc_Create_WritesDiffHashInRecordFiles(t *testing.T) {
 	require.Equal(t, expected, hash)
 }
 
+// writeSnapshotDir creates a fake snapshot directory under
+// <baseDir>/profiles/home/backups/<dirName> with a _meta.yaml whose
+// CreatedAt is the supplied timestamp. Used by List / Rotate tests
+// that don't need the full Create flow.
+func writeSnapshotDir(t *testing.T, baseDir, dirName string, createdAt time.Time) string {
+	t.Helper()
+	dir := filepath.Join(baseDir, "profiles", "home", "backups", dirName)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	meta := backupMeta{
+		Schema:          MetaSchemaName,
+		Profile:         "home",
+		URL:             "https://x:4444",
+		SophosfwVersion: "test",
+		CreatedAt:       createdAt.UTC().Format(time.RFC3339),
+		CatalogVersion:  "1",
+		TypesIncluded:   []string{"IPHost"},
+		RecordCounts:    map[string]int{"IPHost": 1},
+		TotalRecords:    1,
+	}
+	metaBytes, err := yaml.Marshal(meta)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_meta.yaml"), metaBytes, 0o644))
+	return dir
+}
+
+func TestBackupSvc_List_EmptyDirectory_ReturnsNil(t *testing.T) {
+	bs, _ := newBackupSvc(t, &scriptedBodyClient{})
+
+	// No snapshots yet — the backups dir doesn't even exist.
+	entries, err := bs.List("")
+	require.NoError(t, err)
+	require.Nil(t, entries)
+}
+
+func TestBackupSvc_List_ReturnsTimestampSortedNewestFirst(t *testing.T) {
+	bs, baseDir := newBackupSvc(t, &scriptedBodyClient{})
+
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	writeSnapshotDir(t, baseDir, "2026-05-01T10-00-00Z", t1)
+	writeSnapshotDir(t, baseDir, "2026-05-03T10-00-00Z", t3)
+	writeSnapshotDir(t, baseDir, "2026-05-02T10-00-00Z", t2)
+
+	entries, err := bs.List("")
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+	require.True(t, entries[0].CreatedAt.Equal(t3), "newest first: %v", entries[0].CreatedAt)
+	require.True(t, entries[1].CreatedAt.Equal(t2))
+	require.True(t, entries[2].CreatedAt.Equal(t1))
+}
+
+func TestBackupSvc_List_SkipsPartialDirs(t *testing.T) {
+	bs, baseDir := newBackupSvc(t, &scriptedBodyClient{})
+
+	good := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	goodDir := writeSnapshotDir(t, baseDir, "2026-05-02T10-00-00Z", good)
+
+	// Create a .partial dir alongside (with a valid-looking meta to prove
+	// the suffix check, not the meta check, is what filters it).
+	partial := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	writeSnapshotDir(t, baseDir, "2026-05-01T10-00-00Z.partial", partial)
+
+	entries, err := bs.List("")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, goodDir, entries[0].Path)
+}
+
+func TestBackupSvc_List_SkipsDirsWithoutValidMeta(t *testing.T) {
+	bs, baseDir := newBackupSvc(t, &scriptedBodyClient{})
+
+	// Good snapshot.
+	good := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	goodDir := writeSnapshotDir(t, baseDir, "2026-05-02T10-00-00Z", good)
+
+	// Dir with no _meta.yaml at all.
+	noMeta := filepath.Join(baseDir, "profiles", "home", "backups", "no-meta")
+	require.NoError(t, os.MkdirAll(noMeta, 0o755))
+
+	// Dir with a _meta.yaml of the wrong schema.
+	wrong := filepath.Join(baseDir, "profiles", "home", "backups", "wrong-schema")
+	require.NoError(t, os.MkdirAll(wrong, 0o755))
+	bogus, err := yaml.Marshal(map[string]string{"schema": "some.other.schema"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(wrong, "_meta.yaml"), bogus, 0o644))
+
+	entries, err := bs.List("")
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, goodDir, entries[0].Path)
+}
+
+func TestBackupSvc_Rotate_KeepZero_DeletesAll(t *testing.T) {
+	bs, baseDir := newBackupSvc(t, &scriptedBodyClient{})
+
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	d1 := writeSnapshotDir(t, baseDir, "2026-05-01T10-00-00Z", t1)
+	d2 := writeSnapshotDir(t, baseDir, "2026-05-02T10-00-00Z", t2)
+
+	deleted, err := bs.Rotate("", 0)
+	require.NoError(t, err)
+	require.Len(t, deleted, 2)
+	require.ElementsMatch(t, []string{d1, d2}, deleted)
+	require.NoDirExists(t, d1)
+	require.NoDirExists(t, d2)
+}
+
+func TestBackupSvc_Rotate_KeepN_DeletesOldestN(t *testing.T) {
+	bs, baseDir := newBackupSvc(t, &scriptedBodyClient{})
+
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	t4 := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
+	d1 := writeSnapshotDir(t, baseDir, "2026-05-01T10-00-00Z", t1)
+	d2 := writeSnapshotDir(t, baseDir, "2026-05-02T10-00-00Z", t2)
+	d3 := writeSnapshotDir(t, baseDir, "2026-05-03T10-00-00Z", t3)
+	d4 := writeSnapshotDir(t, baseDir, "2026-05-04T10-00-00Z", t4)
+
+	deleted, err := bs.Rotate("", 2)
+	require.NoError(t, err)
+	// keep 2 newest (d4, d3); delete d2, d1.
+	require.ElementsMatch(t, []string{d1, d2}, deleted)
+	require.DirExists(t, d3)
+	require.DirExists(t, d4)
+	require.NoDirExists(t, d1)
+	require.NoDirExists(t, d2)
+}
+
+func TestBackupSvc_Rotate_NothingToDelete_ReturnsNil(t *testing.T) {
+	bs, baseDir := newBackupSvc(t, &scriptedBodyClient{})
+
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	writeSnapshotDir(t, baseDir, "2026-05-01T10-00-00Z", t1)
+	writeSnapshotDir(t, baseDir, "2026-05-02T10-00-00Z", t2)
+
+	// keep >= existing count: nothing to delete.
+	deleted, err := bs.Rotate("", 5)
+	require.NoError(t, err)
+	require.Nil(t, deleted)
+}
+
+func TestBackupSvc_Rotate_RejectsNegativeKeep(t *testing.T) {
+	bs, _ := newBackupSvc(t, &scriptedBodyClient{})
+
+	_, err := bs.Rotate("", -1)
+	require.ErrorIs(t, err, sophos.ErrInvalidRequest)
+	require.Contains(t, err.Error(), "--keep")
+}
+
 func TestBackupSvc_Create_StubRecordsSkipped(t *testing.T) {
 	// A real record + a stub (Name="") for the same tag. Stub must not
 	// produce a file, must not contribute to counts, and must not error.
