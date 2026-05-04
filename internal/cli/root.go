@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -51,6 +52,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 	root.AddCommand(newFirewallCmd(d, cat))
 	root.AddCommand(newNATCmd(d, cat))
 	root.AddCommand(newBackupCmd(d))
+	root.AddCommand(newDriftCmd(d))
 
 	return root
 }
@@ -60,6 +62,12 @@ func NewRoot(d RootDeps) *cobra.Command {
 func HandleError(cmd *cobra.Command, err error) int {
 	if err == nil {
 		return 0
+	}
+	// ErrDriftDetected is a normal output mode for `sophosfw drift`,
+	// not an error condition: exit 1 silently so callers behave like
+	// `git diff --exit-code`.
+	if errors.Is(err, ErrDriftDetected) {
+		return 1
 	}
 	kind := ErrorKind(err)
 	jsonMode, _ := cmd.Flags().GetBool("json")
