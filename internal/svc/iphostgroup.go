@@ -114,6 +114,14 @@ func (s *IPHostGroupSvc) mutate(ctx context.Context, profileName, name string, b
 		return nil, fmt.Errorf("%w: IPHostGroup is not flagged mutable in the catalog", sophos.ErrInvalidRequest)
 	}
 
+	// Strip the _diffHash that ObjectSvc.Get injects into mutable
+	// records — otherwise the natural object_get → edit → update
+	// workflow leaks <_diffHash>...</_diffHash> into the XML envelope.
+	// Delete passes body=nil, so this is a safe no-op there.
+	if body != nil {
+		delete(body, "_diffHash")
+	}
+
 	if op != "delete" {
 		for _, k := range requiredIPHostGroupFields {
 			v, present := body[k]
@@ -254,7 +262,7 @@ func (s *IPHostGroupSvc) fetchLive(ctx context.Context, profileName, name string
 	if !ok {
 		return nil, fmt.Errorf("IPHostGroupSvc: catalog returned non-map IPHostGroup payload: %T", obj.Data)
 	}
-	if name, _ := m["Name"].(string); name == "" {
+	if liveName, _ := m["Name"].(string); liveName == "" {
 		// Sophos sometimes returns a stub record with all fields
 		// blank instead of an empty result set.
 		return nil, fmt.Errorf("IPHostGroup %q: %w", name, sophos.ErrNotFound)

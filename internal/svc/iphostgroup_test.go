@@ -210,3 +210,51 @@ func TestIPHostGroup_Delete_OnMissing_ReturnsNotFound(t *testing.T) {
 	require.True(t, errors.Is(err, sophos.ErrNotFound))
 	require.Empty(t, fc.sent)
 }
+
+// TestIPHostGroup_Update_OnStubRecord_ReturnsNotFoundWithName ensures
+// the stub-record branch in fetchLive surfaces the requested name in
+// the error string. Regression: a previous version shadowed the outer
+// `name` arg with the live record's empty Name, producing
+// `IPHostGroup "": not_found`.
+func TestIPHostGroup_Update_OnStubRecord_ReturnsNotFoundWithName(t *testing.T) {
+	// Stub record: catalog Get parses it as a map with Name="" and
+	// _diffHash injected; fetchLive must reject it as not_found while
+	// preserving the requested name in the message.
+	stub := map[string]any{"Name": "", "IPFamily": ""}
+	s, fc, _ := newIPHostGroupSvc(t, stub)
+	body := map[string]any{"Name": "RequestedName", "IPFamily": "IPv4"}
+	_, err := s.Update(context.Background(), "home", "RequestedName", body, "anyhash", false, false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, sophos.ErrNotFound))
+	require.Contains(t, err.Error(), `"RequestedName"`,
+		"error message must include the requested name, not the empty live Name (shadowing regression)")
+	require.NotContains(t, err.Error(), `""`,
+		"error message must not show empty quotes")
+	require.Empty(t, fc.sent)
+}
+
+// TestIPHostGroup_Update_StripsInjectedDiffHashFromBody verifies that
+// when a caller passes a body with `_diffHash` (e.g. the natural
+// object_get → edit → update workflow, where ObjectSvc.Get injects it),
+// the field is stripped before XML marshalling so it never appears in
+// the envelope sent to the appliance.
+func TestIPHostGroup_Update_StripsInjectedDiffHashFromBody(t *testing.T) {
+	live := map[string]any{"Name": "G1", "IPFamily": "IPv4"}
+	hash, _ := DiffHash(live)
+	s, fc, _ := newIPHostGroupSvc(t, live)
+	// Body mirrors what a user would pass after object_get — includes
+	// the _diffHash key the catalog injected.
+	body := map[string]any{
+		"Name":      "G1",
+		"IPFamily":  "IPv4",
+		"_diffHash": "abc123",
+	}
+	out, err := s.Update(context.Background(), "home", "G1", body, hash, false, false)
+	require.NoError(t, err)
+	require.Equal(t, "update", out.Operation)
+	require.Len(t, fc.sent, 1)
+	require.NotContains(t, string(fc.sent[0]), "_diffHash",
+		"injected _diffHash must be stripped before XML marshal")
+	require.NotContains(t, string(fc.sent[0]), "abc123",
+		"diffHash value must not leak into the envelope")
+}
