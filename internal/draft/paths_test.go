@@ -126,3 +126,21 @@ func TestListSnapshots_RejectsInvalidTag(t *testing.T) {
 	_, err := ListSnapshots(base, "home", "../etc", "X")
 	require.Error(t, err)
 }
+
+func TestBackupRootDir_Format(t *testing.T) {
+	p, err := BackupRootDir("/base", "home")
+	require.NoError(t, err)
+	require.Equal(t, "/base/profiles/home/backups", p)
+}
+
+func TestBackupRootDir_RejectsInvalidProfile(t *testing.T) {
+	_, err := BackupRootDir("/base", "../etc")
+	require.Error(t, err)
+}
+
+func TestBackupSnapshotDir_Format(t *testing.T) {
+	tt := time.Date(2026, 5, 3, 20, 30, 0, 0, time.UTC)
+	p, err := BackupSnapshotDir("/base", "home", tt)
+	require.NoError(t, err)
+	require.Equal(t, "/base/profiles/home/backups/2026-05-03T20-30-00Z", p)
+}

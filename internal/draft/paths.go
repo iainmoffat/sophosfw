@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/iainmoffat/sophosfw/internal/sophos"
 )
 
 // Slug derives a filesystem-safe slug from a Sophos rule name.
@@ -79,6 +81,40 @@ func SnapshotPath(baseDir, profile, tag, ruleName string, t time.Time) (string, 
 func nameHash(name string) string {
 	h := sha256.Sum256([]byte(name))
 	return hex.EncodeToString(h[:])[:6]
+}
+
+// profileNameRe is the allowlist for profile names embedded in filesystem
+// paths. ASCII letters, digits, dash, and underscore. Defends against
+// path-traversal (e.g. "../etc") and surprising filesystem characters.
+var profileNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validProfileName reports whether name is safe to embed in a filesystem
+// path under baseDir/profiles/. Empty names and names with separators or
+// traversal sequences are rejected.
+func validProfileName(name string) bool {
+	if name == "" {
+		return false
+	}
+	return profileNameRe.MatchString(name)
+}
+
+// BackupRootDir returns the directory containing all backup snapshots
+// for a profile. Created lazily by BackupSvc.Create.
+func BackupRootDir(baseDir, profile string) (string, error) {
+	if !validProfileName(profile) {
+		return "", fmt.Errorf("%w: invalid profile name %q", sophos.ErrInvalidRequest, profile)
+	}
+	return filepath.Join(baseDir, "profiles", profile, "backups"), nil
+}
+
+// BackupSnapshotDir returns the absolute path for a single backup
+// snapshot. Format mirrors SnapshotPath: <root>/2026-05-03T20-30-00Z.
+func BackupSnapshotDir(baseDir, profile string, t time.Time) (string, error) {
+	root, err := BackupRootDir(baseDir, profile)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, t.UTC().Format("2006-01-02T15-04-05Z")), nil
 }
 
 // readHeaderRule reads just the `# rule:` line from a draft or snapshot
