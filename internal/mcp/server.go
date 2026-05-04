@@ -80,6 +80,7 @@ func (s *Server) registerAll() {
 	s.registerMACHost()
 	s.registerService()
 	s.registerServices()
+	s.registerServiceGroup()
 	s.registerFirewallRule()
 	s.registerNATRule()
 }

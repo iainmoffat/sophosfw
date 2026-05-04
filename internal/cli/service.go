@@ -20,6 +20,7 @@ func newServiceCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		newServicesCreateCmd(d, cat),
 		newServicesUpdateCmd(d, cat),
 		newServicesDeleteCmd(d, cat),
+		newServiceGroupCmd(d, cat),
 	)
 	return cmd
 }
