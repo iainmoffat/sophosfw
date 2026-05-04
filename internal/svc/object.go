@@ -156,6 +156,24 @@ func (s *ObjectSvc) Get(ctx context.Context, profileName, tagOrAlias, name strin
 	if err != nil {
 		return nil, err
 	}
+	// Phase 12: inject _diffHash for catalog-mutable types so update/delete
+	// callers can use it as expectedDiffHash without a separate query.
+	// We coerce typed values to map[string]any here so the field round-trips
+	// cleanly through the object envelope; typed downstream services
+	// (HostIPSvc, ServiceSvc) re-marshal the map back into their native
+	// struct.
+	if entry.Mutable {
+		m, mErr := toMap(v)
+		if mErr != nil {
+			return nil, mErr
+		}
+		if m != nil {
+			if hash, hashErr := DiffHash(m); hashErr == nil {
+				m["_diffHash"] = hash
+			}
+			v = m
+		}
+	}
 	return &Object{
 		Profile: profName,
 		Tag:     entry.Tag,
@@ -218,4 +236,30 @@ func (s *ObjectSvc) Schema(tagOrAlias string) (*catalog.Entry, error) {
 // Local helper to keep the encoding/json import alongside the call site.
 func jsonUnmarshal(raw []byte, v any) error {
 	return jsonUnmarshalImpl(raw, v)
+}
+
+// decodeObjectDataInto decodes an Object.Data value (which may be a typed
+// catalog struct OR a map[string]any with an injected `_diffHash` key) into
+// the supplied destination via JSON round-trip. Used by typed downstream
+// services (HostIPSvc, ServiceSvc) to recover the catalog struct after
+// ObjectSvc.Get has converted to a map for diff-hash injection.
+func decodeObjectDataInto(data any, dst any) error {
+	if m, ok := data.(map[string]any); ok {
+		// Avoid leaking the synthetic field into the typed struct.
+		if _, has := m["_diffHash"]; has {
+			cleaned := make(map[string]any, len(m))
+			for k, v := range m {
+				if k == "_diffHash" {
+					continue
+				}
+				cleaned[k] = v
+			}
+			data = cleaned
+		}
+	}
+	raw, err := jsonMarshalImpl(data)
+	if err != nil {
+		return err
+	}
+	return jsonUnmarshalImpl(raw, dst)
 }

@@ -35,6 +35,10 @@ func canonicalize(record any) ([]byte, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
+	// _diffHash is a sophosfw-injected field (Phase 12 generic object_get).
+	// Strip it before hashing so the hash represents only the body shape
+	// and re-hashing an already-hashed record yields the same value.
+	delete(m, "_diffHash")
 	return marshalSorted(m)
 }
 

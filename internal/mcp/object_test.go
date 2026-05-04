@@ -80,6 +80,20 @@ func TestObjectGet_Handler(t *testing.T) {
 	require.Contains(t, textOf(out), `"name": "LAN"`)
 }
 
+// TestObjectGet_PassesDiffHashThrough confirms the MCP object_get handler
+// surfaces the _diffHash that ObjectSvc.Get injects for catalog-mutable
+// types (Phase 12). Update/delete callers use this hash as
+// expectedDiffHash without a separate query.
+func TestObjectGet_PassesDiffHashThrough(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"IPHost": {json.RawMessage(`{"Name":"LAN","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`)},
+	}
+	s := newObjectTestServer(t, body)
+	out, _, err := s.handleObjectGet(context.Background(), nil, ObjectGetInput{Tag: "IPHost", Name: "LAN"})
+	require.NoError(t, err)
+	require.Contains(t, textOf(out), `"_diffHash"`)
+}
+
 func TestObjectGet_NotFound_ReturnsErrorEnvelope(t *testing.T) {
 	s := newObjectTestServer(t, map[string][]json.RawMessage{"IPHost": {}})
 	out, _, err := s.handleObjectGet(context.Background(), nil, ObjectGetInput{Tag: "IPHost", Name: "missing"})

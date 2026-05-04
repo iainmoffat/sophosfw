@@ -182,8 +182,15 @@ func (s *ServiceSvc) Get(ctx context.Context, profileName, name string) (*Servic
 	if err != nil {
 		return nil, err
 	}
-	raw, ok := inner.Data.(catalog.Service)
-	if !ok {
+	var raw catalog.Service
+	switch d := inner.Data.(type) {
+	case catalog.Service:
+		raw = d
+	case map[string]any:
+		if err := decodeObjectDataInto(d, &raw); err != nil {
+			return nil, fmt.Errorf("ServiceSvc.Get: decode Service: %w", err)
+		}
+	default:
 		return nil, fmt.Errorf("ServiceSvc.Get: catalog returned non-Service item: %T", inner.Data)
 	}
 	v := Service{Service: raw}

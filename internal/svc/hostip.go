@@ -110,8 +110,15 @@ func (s *HostIPSvc) Get(ctx context.Context, profileName, name string) (*HostIP,
 	if err != nil {
 		return nil, err
 	}
-	raw, ok := inner.Data.(catalog.IPHost)
-	if !ok {
+	var raw catalog.IPHost
+	switch v := inner.Data.(type) {
+	case catalog.IPHost:
+		raw = v
+	case map[string]any:
+		if err := decodeObjectDataInto(v, &raw); err != nil {
+			return nil, fmt.Errorf("HostIPSvc.Get: decode IPHost: %w", err)
+		}
+	default:
 		return nil, fmt.Errorf("HostIPSvc.Get: catalog returned non-IPHost item: %T", inner.Data)
 	}
 	// Sophos sometimes returns a stub record (all fields empty) for a

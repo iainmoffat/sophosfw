@@ -157,3 +157,48 @@ func TestObjectSvc_Schema_ReturnsCatalogEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "IPHost", e.Tag)
 }
+
+// TestObjectSvc_Get_InjectsDiffHashForMutableTypes covers the Phase 12
+// generalization of the firewall_rule_show / nat_rule_show pattern:
+// ObjectSvc.Get coerces the parsed body to map[string]any and injects
+// _diffHash for catalog-mutable types so update/delete callers can use it
+// as expectedDiffHash without a separate query.
+func TestObjectSvc_Get_InjectsDiffHashForMutableTypes(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"IPHost": {
+				json.RawMessage(`{"Name":"x","IPFamily":"IPv4","HostType":"IP","IPAddress":"1.1.1.1"}`),
+			},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.Get(context.Background(), "home", "IPHost", "x")
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	m, ok := out.Data.(map[string]any)
+	require.True(t, ok, "Data should be map[string]any for mutable types, got %T", out.Data)
+	require.NotEmpty(t, m["_diffHash"])
+}
+
+// TestObjectSvc_Get_DoesNotInjectDiffHashForImmutableTypes ensures the
+// injection is gated on catalog.Entry.Mutable. Zone is not mutable in
+// Phase 12, so the body must not carry _diffHash.
+func TestObjectSvc_Get_DoesNotInjectDiffHashForImmutableTypes(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"Zone": {json.RawMessage(`{"Name":"LAN","Type":"LAN"}`)},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.Get(context.Background(), "home", "Zone", "LAN")
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	// Zone has a typed parser, so Data is the catalog struct, not a map.
+	// Re-marshal to JSON to confirm _diffHash isn't present.
+	b, err := json.Marshal(out.Data)
+	require.NoError(t, err)
+	require.NotContains(t, string(b), `"_diffHash"`,
+		"Zone is immutable; _diffHash should not be injected")
+}
