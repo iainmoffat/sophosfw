@@ -15,6 +15,7 @@ objects:
     filterable: [Name, IPFamily]
     usageTag: IPHostGroupStatistics
     typedParser: ""
+    mutable: true
 
   - tag: Services
     aliases: [service]
@@ -23,6 +24,7 @@ objects:
     filterable: [Name, Type]
     usageTag: ServicesStatistics
     typedParser: service
+    mutable: true
 
   - tag: ServiceGroup
     aliases: [service-group]
@@ -31,6 +33,7 @@ objects:
     filterable: [Name]
     usageTag: ServiceGroupStatistics
     typedParser: ""
+    mutable: true
 
   - tag: FQDNHost
     aliases: [fqdn, fqdn-host, host-fqdn]
@@ -39,6 +42,7 @@ objects:
     filterable: [Name, FQDN, IPFamily]
     usageTag: FQDNHostStatistics
     typedParser: fqdnhost
+    mutable: true
 
   - tag: FQDNHostGroup
     aliases: [fqdn-group]
@@ -47,6 +51,7 @@ objects:
     filterable: [Name]
     usageTag: FQDNHostGroupStatistics
     typedParser: ""
+    mutable: true
 
   - tag: MACHost
     aliases: [mac, mac-host, host-mac]
@@ -55,6 +60,7 @@ objects:
     filterable: [Name, Type, MACAddress]
     usageTag: MACHostStatistics
     typedParser: machost
+    mutable: true
 
   - tag: Zone
     aliases: [zone]

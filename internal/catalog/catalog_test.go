@@ -62,13 +62,23 @@ func TestCatalog_IPHostMutable(t *testing.T) {
 	require.True(t, entry.Mutable, "IPHost should be marked mutable in Phase 6")
 }
 
-func TestCatalog_OtherEntriesNotMutable(t *testing.T) {
+func TestCatalog_Phase12NewlyMutable(t *testing.T) {
 	c, err := NewDefault()
 	require.NoError(t, err)
-	for _, tag := range []string{"FQDNHost", "MACHost", "Zone", "Services"} {
+	for _, tag := range []string{"IPHostGroup", "FQDNHost", "FQDNHostGroup", "MACHost", "Services", "ServiceGroup"} {
 		entry, ok := c.Resolve(tag)
 		require.True(t, ok, "tag %q should exist", tag)
-		require.False(t, entry.Mutable, "tag %q must NOT be mutable in Phase 7", tag)
+		require.True(t, entry.Mutable, "tag %q must be mutable as of Phase 12", tag)
+	}
+}
+
+func TestCatalog_NetworkTypesStillImmutable(t *testing.T) {
+	c, err := NewDefault()
+	require.NoError(t, err)
+	for _, tag := range []string{"Zone", "Interface", "GatewayConfiguration"} {
+		entry, ok := c.Resolve(tag)
+		require.True(t, ok, "tag %q should exist", tag)
+		require.False(t, entry.Mutable, "tag %q must NOT be mutable (network types deferred)", tag)
 	}
 }
 
