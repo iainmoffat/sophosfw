@@ -14,6 +14,7 @@
 - Phase 10 — MCP-native firewall and NAT rule mutating tools (complete; v0.9.0-phase10)
 - Phase 11 — CI/CD + release polish (complete; v0.9.1)
 - Phase 12 — Mutating coverage breadth (host groups, FQDN, MAC, services) (complete; v0.10.0)
+- Phase 13 — Backup + drift detection (complete; v0.11.0)
 
 ## Phase 3 — First-class read-only commands
 **Goal:** ergonomic wrappers over the catalog for high-traffic objects.
