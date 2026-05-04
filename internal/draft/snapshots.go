@@ -13,7 +13,7 @@ import (
 // Includes both regular and -deleted tombstones.
 func ListSnapshots(baseDir, profile, tag, ruleName string) ([]string, error) {
 	if _, ok := validTags[tag]; !ok {
-		return nil, fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat)", tag)
+		return nil, fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat, vpn)", tag)
 	}
 	dir := filepath.Join(baseDir, "profiles", profile, "snapshots", tag)
 	entries, err := os.ReadDir(dir)

@@ -103,3 +103,30 @@ objects:
     usageTag: ""
     typedParser: ""
     mutable: true
+
+  - tag: VPNIPsecConnection
+    aliases: [vpn-ipsec, ipsec-tunnel, ipsec-connection]
+    description: "Site-to-site IPsec VPN tunnels"
+    columns: [Name, Status, ConnectionType, AuthenticationType, Strategy]
+    filterable: [Name, Status, ConnectionType]
+    usageTag: ""
+    typedParser: ""
+    mutable: true
+
+  - tag: IPsecPolicy
+    aliases: [ipsec-policy, vpn-ipsec-policy]
+    description: "IPsec (Phase 2) encryption policies"
+    columns: [Name, KeyLifetime, KeyNegotiationTries]
+    filterable: [Name]
+    usageTag: ""
+    typedParser: ""
+    mutable: true
+
+  - tag: VPNProfile
+    aliases: [ike-profile, vpn-ike-profile, vpn-profile]
+    description: "IKE (Phase 1) policies / VPN profiles"
+    columns: [Name, AuthenticationMode]
+    filterable: [Name]
+    usageTag: ""
+    typedParser: ""
+    mutable: true

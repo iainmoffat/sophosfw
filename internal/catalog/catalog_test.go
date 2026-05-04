@@ -97,3 +97,13 @@ func TestCatalog_NATRuleIsMutable(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, entry.Mutable)
 }
+
+func TestCatalog_Phase15NewlyMutable(t *testing.T) {
+	c, err := NewDefault()
+	require.NoError(t, err)
+	for _, tag := range []string{"VPNIPsecConnection", "IPsecPolicy", "VPNProfile"} {
+		entry, ok := c.Resolve(tag)
+		require.True(t, ok, "tag %q should exist", tag)
+		require.True(t, entry.Mutable, "tag %q must be mutable as of Phase 15", tag)
+	}
+}

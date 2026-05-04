@@ -49,6 +49,12 @@ func schemaForObjectType(t string) string {
 		return "sophosfw.v1.servicesMutation"
 	case "ServiceGroup":
 		return "sophosfw.v1.serviceGroupMutation"
+	case "VPNIPsecConnection":
+		return "sophosfw.v1.vpnIpsecMutation"
+	case "IPsecPolicy":
+		return "sophosfw.v1.ipsecPolicyMutation"
+	case "VPNProfile":
+		return "sophosfw.v1.vpnProfileMutation"
 	}
 	return "sophosfw.v1.objectMutation"
 }

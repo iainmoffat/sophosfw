@@ -98,6 +98,19 @@ func TestDraftPath_TagInPath(t *testing.T) {
 	require.Equal(t, filepath.Join(base, "profiles", "home", "drafts", "nat", "dnat-to-x.yaml"), p2)
 }
 
+func TestPaths_VPNTagAccepted(t *testing.T) {
+	base := t.TempDir()
+	p, err := DraftPath(base, "home", "vpn", "tunnel-name")
+	require.NoError(t, err)
+	require.Contains(t, p, filepath.Join("drafts", "vpn"))
+	require.True(t, strings.HasSuffix(p, "tunnel-name.yaml"))
+
+	tt := mustParseTime(t, "2026-05-03T15:30:00Z")
+	sp, err := SnapshotPath(base, "home", "vpn", "tunnel-name", tt)
+	require.NoError(t, err)
+	require.Contains(t, sp, filepath.Join("snapshots", "vpn"))
+}
+
 func TestSnapshotPath_TagInPath(t *testing.T) {
 	base := t.TempDir()
 	tt := mustParseTime(t, "2026-05-02T15:30:00Z")

@@ -37,6 +37,7 @@ func Slug(name string) string {
 var validTags = map[string]struct{}{
 	"firewall": {},
 	"nat":      {},
+	"vpn":      {},
 }
 
 // DraftPath returns the absolute path to the draft file for ruleName
@@ -44,7 +45,7 @@ var validTags = map[string]struct{}{
 // of validTags.
 func DraftPath(baseDir, profile, tag, ruleName string) (string, error) {
 	if _, ok := validTags[tag]; !ok {
-		return "", fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat)", tag)
+		return "", fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat, vpn)", tag)
 	}
 	dir := filepath.Join(baseDir, "profiles", profile, "drafts", tag)
 	slug := Slug(ruleName)
@@ -66,7 +67,7 @@ func DraftPath(baseDir, profile, tag, ruleName string) (string, error) {
 // ruleName at time t under baseDir/profiles/<profile>/snapshots/<tag>/.
 func SnapshotPath(baseDir, profile, tag, ruleName string, t time.Time) (string, error) {
 	if _, ok := validTags[tag]; !ok {
-		return "", fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat)", tag)
+		return "", fmt.Errorf("draft: invalid tag %q (allowed: firewall, nat, vpn)", tag)
 	}
 	dir := filepath.Join(baseDir, "profiles", profile, "snapshots", tag)
 	slug := Slug(ruleName)
