@@ -51,8 +51,8 @@ func TestServer_RegistersAllTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 57,
-		"expected 57 tools, got %d", len(result.Tools))
+	require.Len(t, result.Tools, 67,
+		"expected 67 tools, got %d", len(result.Tools))
 
 	names := make([]string, len(result.Tools))
 	for i, tool := range result.Tools {
@@ -78,6 +78,10 @@ func TestServer_RegistersAllTools(t *testing.T) {
 		"nat_rule_create", "nat_rule_update", "nat_rule_delete",
 		"vpn_ipsec_list", "vpn_ipsec_show",
 		"vpn_ipsec_create", "vpn_ipsec_update", "vpn_ipsec_delete",
+		"vpn_policy_list", "vpn_policy_show",
+		"vpn_policy_create", "vpn_policy_update", "vpn_policy_delete",
+		"vpn_ike_profile_list", "vpn_ike_profile_show",
+		"vpn_ike_profile_create", "vpn_ike_profile_update", "vpn_ike_profile_delete",
 		"backup_create", "backup_list", "drift_check",
 	} {
 		require.Contains(t, names, want)

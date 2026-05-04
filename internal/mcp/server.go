@@ -86,6 +86,8 @@ func (s *Server) registerAll() {
 	s.registerFirewallRule()
 	s.registerNATRule()
 	s.registerVPNIPsec()
+	s.registerIPsecPolicy()
+	s.registerVPNProfile()
 	s.registerBackup()
 	s.registerProfileSet()
 }
