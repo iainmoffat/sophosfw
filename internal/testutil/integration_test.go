@@ -852,3 +852,194 @@ func dirExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
 }
+
+// fanoutSkipMsg is the canonical skip message for the fan-out integration
+// suite. Both SOPHOSFW_PROFILE and SOPHOSFW_TEST_PROFILE_2 must point at
+// real, credential-bearing profiles; absent either, the test skips.
+const fanoutSkipMsg = "set SOPHOSFW_PROFILE and SOPHOSFW_TEST_PROFILE_2 to run fan-out integration tests"
+
+// TestIntegration_Fanout_FirewallRulePushDryRun exercises the fan-out
+// path through the in-memory MCP transport: firewall_rule_update with
+// dryRun=true across a 2-profile CSV set. Because dryRunOnly=true, the
+// fan-out runner stops after the parallel pre-flight phase, so every
+// per-profile entry must be phase=preflight, status=ok.
+//
+// The body is sourced live from profile 1's `Block Countries` rule via
+// firewall_rule_show; the same body is replayed against both profiles
+// with ignoreExpectedDiffHash=true so the second profile (which has its
+// own independent diff hash) doesn't fail the optimistic-concurrency
+// check.
+func TestIntegration_Fanout_FirewallRulePushDryRun(t *testing.T) {
+	profile1 := os.Getenv("SOPHOSFW_PROFILE")
+	profile2 := os.Getenv("SOPHOSFW_TEST_PROFILE_2")
+	if profile1 == "" || profile2 == "" {
+		t.Skip(fanoutSkipMsg)
+	}
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config: cfg, Creds: store, Catalog: cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profile1,
+		BaseDir:        baseDir,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	// Step 1: show on profile 1 to capture a real body.
+	const ruleName = "Block Countries"
+	showResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "firewall_rule_show",
+		Arguments: map[string]any{
+			"profile": profile1,
+			"name":    ruleName,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, showResult.IsError, "firewall_rule_show failed: %+v", showResult.Content)
+	tcShow, ok := showResult.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+	var showBody map[string]any
+	require.NoError(t, json.Unmarshal([]byte(tcShow.Text), &showBody))
+	delete(showBody, "_diffHash")
+	delete(showBody, "schema")
+
+	// Step 2: update dry-run across both profiles via profileSet CSV.
+	updateResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "firewall_rule_update",
+		Arguments: map[string]any{
+			"profileSet":             profile1 + "," + profile2,
+			"name":                   ruleName,
+			"body":                   showBody,
+			"ignoreExpectedDiffHash": true,
+			"confirm":                true,
+			"dryRun":                 true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, updateResult.IsError, "firewall_rule_update fan-out failed: %+v", updateResult.Content)
+
+	tcUpd, ok := updateResult.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+	require.Contains(t, tcUpd.Text, `"schema": "sophosfw.v1.fanoutResult"`)
+
+	var env struct {
+		Operation string           `json:"operation"`
+		Profiles  []string         `json:"profiles"`
+		Results   []map[string]any `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(tcUpd.Text), &env))
+	require.Equal(t, "firewall_rule_push", env.Operation)
+	require.Equal(t, []string{profile1, profile2}, env.Profiles)
+	require.Len(t, env.Results, 2)
+	for _, r := range env.Results {
+		require.Equal(t, "preflight", r["phase"], "expected preflight phase, got %v", r)
+		require.Equal(t, "ok", r["status"], "expected ok status, got %v", r)
+	}
+}
+
+// TestIntegration_Fanout_DriftAcrossSet exercises the fan-out path for
+// drift_check across a 2-profile CSV set, using --latest so the test
+// doesn't need a pre-existing snapshot path. drift is read-only against
+// the firewall but the MCP handler runs with dryRunOnly=false so the
+// real work happens in the apply phase: every per-profile entry must
+// be phase=apply, status=ok.
+//
+// To give --latest something to find, a backup_create fan-out is run
+// first against the same set; both snapshots land under their default
+// profile-scoped dir and are immediately drifted against.
+func TestIntegration_Fanout_DriftAcrossSet(t *testing.T) {
+	profile1 := os.Getenv("SOPHOSFW_PROFILE")
+	profile2 := os.Getenv("SOPHOSFW_TEST_PROFILE_2")
+	if profile1 == "" || profile2 == "" {
+		t.Skip(fanoutSkipMsg)
+	}
+
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	baseDir, err := config.DefaultBaseDir()
+	require.NoError(t, err)
+	cfg, err := config.Load(baseDir)
+	require.NoError(t, err)
+	store := creds.New(baseDir)
+
+	srv := mcp.NewServer("integration", mcp.Deps{
+		Config: cfg, Creds: store, Catalog: cat,
+		NewClient:      svc.DefaultClientFactory(false),
+		DefaultProfile: profile1,
+		BaseDir:        baseDir,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	defer cancel()
+
+	clientTransport, serverTransport := sdkmcp.NewInMemoryTransports()
+	ss, err := srv.Impl().Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer ss.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "integration-client", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	// Step 1: backup_create across the set so drift --latest has a
+	// snapshot to find under each profile's default snapshot dir.
+	// FQDNHost is excluded for the same reason as
+	// TestIntegration_Drift_NoChanges_EmptyResult: the firewall mutates
+	// it between GETs and that surfaces as spurious drift.
+	backupResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "backup_create",
+		Arguments: map[string]any{
+			"profileSet": profile1 + "," + profile2,
+			"exclude":    []string{"FQDNHost"},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, backupResult.IsError, "backup_create fan-out failed: %+v", backupResult.Content)
+
+	// Step 2: drift_check --latest across the set.
+	driftResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "drift_check",
+		Arguments: map[string]any{
+			"profileSet": profile1 + "," + profile2,
+			"latest":     true,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, driftResult.IsError, "drift_check fan-out failed: %+v", driftResult.Content)
+
+	tc, ok := driftResult.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok)
+	require.Contains(t, tc.Text, `"schema": "sophosfw.v1.fanoutResult"`)
+
+	var env struct {
+		Operation string           `json:"operation"`
+		Profiles  []string         `json:"profiles"`
+		Results   []map[string]any `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &env))
+	require.Equal(t, "drift_check", env.Operation)
+	require.Equal(t, []string{profile1, profile2}, env.Profiles)
+	require.Len(t, env.Results, 2)
+	for _, r := range env.Results {
+		require.Equal(t, "apply", r["phase"], "expected apply phase, got %v", r)
+		require.Equal(t, "ok", r["status"], "expected ok status, got %v", r)
+	}
+}
