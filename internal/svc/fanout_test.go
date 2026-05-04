@@ -270,6 +270,43 @@ func TestFanout_ApplyRunsSequentially(t *testing.T) {
 	}
 }
 
+// TestFanout_Preflight_DoesNotRaceOnSharedBody is a smoke-test for
+// the Phase 14 parallel-preflight race fix. The orchestrator runs
+// N preflight goroutines in parallel; before the per-svc body-clone
+// fix, the closures called delete(body, "_diffHash") on a shared
+// caller map, which Go's runtime catches as "concurrent map writes".
+//
+// The real protection lives in the per-svc regression tests
+// (TestX_Create_DoesNotMutateCallerBody) — those assert the body the
+// caller passed in is unchanged. This test confirms the orchestrator
+// itself isn't a source of races when callers do read-only access on
+// a shared body map. Run under `go test -race -count=10` to catch
+// regressions.
+func TestFanout_Preflight_DoesNotRaceOnSharedBody(t *testing.T) {
+	t.Parallel()
+	body := map[string]any{
+		"Name":      "shared",
+		"_diffHash": "abc",
+		"x":         1,
+		"y":         2,
+		"z":         3,
+	}
+	op := func(_ context.Context, _ string, _ bool) (any, error) {
+		// Simulate the kind of body access the real svc layer does:
+		// read fields. If the body were being mutated, we'd see a
+		// runtime panic or inconsistent reads under -race.
+		for k := range body {
+			_ = body[k]
+		}
+		return nil, nil
+	}
+	profiles := []string{"a", "b", "c", "d", "e"}
+	result := Run(context.Background(), "fanout_race_test", profiles, op, true)
+	if !result.PreflightOK {
+		t.Errorf("expected PreflightOK=true, got %+v", result)
+	}
+}
+
 func TestFanout_PreservesProfileOrder(t *testing.T) {
 	t.Parallel()
 	profiles := []string{"c", "a", "b"}

@@ -259,3 +259,28 @@ func TestFQDNHost_Update_StripsInjectedDiffHashFromBody(t *testing.T) {
 	require.NotContains(t, string(fc.sent[0]), "abc123",
 		"diffHash value must not leak into the envelope")
 }
+
+// TestFQDNHost_Create_DoesNotMutateCallerBody is a regression guard
+// for a parallel-preflight race. Phase 14 fan-out runs N preflight
+// goroutines in parallel against the same body map. The svc-layer
+// _diffHash strip used to call delete(body, …) on the caller's map,
+// which under N parallel goroutines triggers Go's "concurrent map
+// writes" runtime panic. The fix clones the body before the strip;
+// this test asserts the caller's map is unchanged after Create.
+func TestFQDNHost_Create_DoesNotMutateCallerBody(t *testing.T) {
+	s, _, _ := newFQDNHostSvc(t, nil)
+	body := map[string]any{
+		"Name":      "F1",
+		"FQDN":      "example.com",
+		"IPFamily":  "IPv4",
+		"_diffHash": "abc",
+	}
+	bodyCopy := map[string]any{}
+	for k, v := range body {
+		bodyCopy[k] = v
+	}
+
+	_, err := s.Create(context.Background(), "home", "F1", body, true /* dryRun */)
+	require.NoError(t, err)
+	require.Equal(t, bodyCopy, body, "Create must not mutate the caller's body map")
+}

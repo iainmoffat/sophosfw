@@ -118,8 +118,21 @@ func (s *IPHostGroupSvc) mutate(ctx context.Context, profileName, name string, b
 	// records — otherwise the natural object_get → edit → update
 	// workflow leaks <_diffHash>...</_diffHash> into the XML envelope.
 	// Delete passes body=nil, so this is a safe no-op there.
+	//
+	// We clone into a fresh map rather than mutate the caller's map.
+	// CLI/MCP fan-out runs preflight goroutines in parallel against
+	// the same body; concurrent delete on a shared map would trip
+	// Go's "concurrent map writes" runtime panic. The clone is cheap
+	// (small maps, shallow copy) and protects every fan-out caller.
 	if body != nil {
-		delete(body, "_diffHash")
+		cloned := make(map[string]any, len(body))
+		for k, v := range body {
+			if k == "_diffHash" {
+				continue
+			}
+			cloned[k] = v
+		}
+		body = cloned
 	}
 
 	if op != "delete" {
