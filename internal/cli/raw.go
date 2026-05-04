@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -49,8 +50,6 @@ func newRawRequestCmd(d RootDeps) *cobra.Command {
 		Short: "Send (preview) a hand-authored Sophos XML envelope",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
-
 			var (
 				body []byte
 				err  error
@@ -77,27 +76,48 @@ func newRawRequestCmd(d RootDeps) *cobra.Command {
 				if mutating, _ := safety.IsMutating(body); mutating && !confirmMutating {
 					return fmt.Errorf("raw request: envelope contains mutating verbs (Set/Remove); pass --confirm-mutating to acknowledge intent (with --yes)")
 				}
-				if err := s.Apply(cmd.Context(), profile, body); err != nil {
-					return err
-				}
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "ok")
-				return nil
 			}
 
-			pv, err := s.Preview(cmd.Context(), profile, body)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			b, err := render.PreviewEnvelope(pv)
-			if err != nil {
+
+			if len(profiles) == 1 {
+				profile := profiles[0]
+				if yes {
+					if err := s.Apply(cmd.Context(), profile, body); err != nil {
+						return err
+					}
+					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "ok")
+					return nil
+				}
+				pv, err := s.Preview(cmd.Context(), profile, body)
+				if err != nil {
+					return err
+				}
+				b, err := render.PreviewEnvelope(pv)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(b)
 				return err
 			}
-			_, err = cmd.OutOrStdout().Write(b)
-			return err
+
+			// Fan-out: pre-flight = Preview (always safe), apply = Apply.
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				if preflight || !yes {
+					return s.Preview(ctx, profile, body)
+				}
+				return nil, s.Apply(ctx, profile, body)
+			}
+			fr := svc.Run(cmd.Context(), "raw_request", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "preview only (default in foundation phase)")
 	c.Flags().BoolVar(&yes, "yes", false, "send the envelope to the firewall")
 	c.Flags().BoolVar(&confirmMutating, "confirm-mutating", false, "required when --yes is used and the envelope contains Set/Remove verbs")
+	AddProfileSetFlag(c)
 	return c
 }

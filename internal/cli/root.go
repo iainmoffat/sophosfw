@@ -69,6 +69,18 @@ func HandleError(cmd *cobra.Command, err error) int {
 	if errors.Is(err, ErrDriftDetected) {
 		return 1
 	}
+	// Fan-out outcome sentinels: per-profile output already explained
+	// the failure, so HandleError must NOT print an additional error
+	// line/envelope. Exit codes mirror the design spec:
+	//   1 = pre-flight failed (mirrors "drift detected" semantics)
+	//   2 = apply failed mid-fleet (more severe — partial state on the
+	//       firewall fleet; operator must investigate immediately).
+	if errors.Is(err, ErrFanoutPreflightFailed) {
+		return 1
+	}
+	if errors.Is(err, ErrFanoutApplyFailed) {
+		return 2
+	}
 	kind := ErrorKind(err)
 	jsonMode, _ := cmd.Flags().GetBool("json")
 	profile, _ := cmd.Flags().GetString("profile")

@@ -14,6 +14,19 @@ import (
 // 1 = drift detected, 2+ = actual error.
 var ErrDriftDetected = errors.New("drift detected")
 
+// ErrFanoutPreflightFailed is returned by a fan-out command when one
+// or more profiles failed pre-flight and the apply phase was skipped.
+// HandleError maps it to exit code 1 silently — the per-profile
+// human/JSON output already explained which profile failed and why.
+var ErrFanoutPreflightFailed = errors.New("fan-out: pre-flight failed")
+
+// ErrFanoutApplyFailed is returned by a fan-out command when pre-flight
+// passed for every profile but the apply phase stopped on a mid-fleet
+// failure (trailing profiles marked "skipped"). HandleError maps it to
+// exit code 2 silently — the per-profile output explains which profile
+// broke the fleet.
+var ErrFanoutApplyFailed = errors.New("fan-out: apply failed mid-fleet")
+
 // ErrorKind classifies an error into a sophosfw.v1.error envelope kind.
 func ErrorKind(err error) string {
 	return svc.ErrorKind(err)

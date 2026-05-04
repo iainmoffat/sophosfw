@@ -8,6 +8,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -52,7 +53,6 @@ func newIPHostGroupCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			profile, _ := cmd.Flags().GetString("profile")
 			body, err := LoadBody(bodyArg)
 			if err != nil {
 				return err
@@ -62,15 +62,27 @@ func newIPHostGroupCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			body["Name"] = name
 
-			result, err := iphostGroupSvc(d, cat).Create(cmd.Context(), profile, name, body, !yes)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			return printObjectMutation(cmd, result)
+			if len(profiles) == 1 {
+				result, err := iphostGroupSvc(d, cat).Create(cmd.Context(), profiles[0], name, body, !yes)
+				if err != nil {
+					return err
+				}
+				return printObjectMutation(cmd, result)
+			}
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return iphostGroupSvc(d, cat).Create(ctx, profile, name, body, preflight || !yes)
+			}
+			fr := svc.Run(cmd.Context(), "ip_host_group_create", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&bodyArg, "body", "", "body source: @path (file), - (stdin), or inline JSON/YAML")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (default is --dry-run)")
+	AddProfileSetFlag(cmd)
 	_ = cmd.MarkFlagRequired("body")
 	return cmd
 }
@@ -85,7 +97,6 @@ func newIPHostGroupUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			profile, _ := cmd.Flags().GetString("profile")
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for update --yes (or pass --ignore-diff-hash)")
 			}
@@ -98,17 +109,29 @@ func newIPHostGroupUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			}
 			body["Name"] = name
 
-			result, err := iphostGroupSvc(d, cat).Update(cmd.Context(), profile, name, body, expectedHash, ignoreHash, !yes)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			return printObjectMutation(cmd, result)
+			if len(profiles) == 1 {
+				result, err := iphostGroupSvc(d, cat).Update(cmd.Context(), profiles[0], name, body, expectedHash, ignoreHash, !yes)
+				if err != nil {
+					return err
+				}
+				return printObjectMutation(cmd, result)
+			}
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return iphostGroupSvc(d, cat).Update(ctx, profile, name, body, expectedHash, ignoreHash, preflight || !yes)
+			}
+			fr := svc.Run(cmd.Context(), "ip_host_group_update", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&bodyArg, "body", "", "body source: @path (file), - (stdin), or inline JSON/YAML")
 	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "hash from a prior object get; required for --yes unless --ignore-diff-hash")
 	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip the diff-hash check (dangerous)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (default is --dry-run)")
+	AddProfileSetFlag(cmd)
 	_ = cmd.MarkFlagRequired("body")
 	return cmd
 }
@@ -123,20 +146,31 @@ func newIPHostGroupDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			profile, _ := cmd.Flags().GetString("profile")
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for delete --yes (or pass --ignore-diff-hash)")
 			}
-			result, err := iphostGroupSvc(d, cat).Delete(cmd.Context(), profile, name, expectedHash, ignoreHash, !yes)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			return printObjectMutation(cmd, result)
+			if len(profiles) == 1 {
+				result, err := iphostGroupSvc(d, cat).Delete(cmd.Context(), profiles[0], name, expectedHash, ignoreHash, !yes)
+				if err != nil {
+					return err
+				}
+				return printObjectMutation(cmd, result)
+			}
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return iphostGroupSvc(d, cat).Delete(ctx, profile, name, expectedHash, ignoreHash, preflight || !yes)
+			}
+			fr := svc.Run(cmd.Context(), "ip_host_group_delete", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "hash from a prior object get; required for --yes unless --ignore-diff-hash")
 	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip the diff-hash check (dangerous)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (default is --dry-run)")
+	AddProfileSetFlag(cmd)
 	return cmd
 }
 

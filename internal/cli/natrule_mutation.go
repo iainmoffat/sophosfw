@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -84,30 +85,28 @@ func newNATRulePushCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Long:  "Defaults to --dry-run preview. Pass --yes to apply. Use --ignore-diff-hash to skip drift detection.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
-			result, err := natRuleMutSvc(d, cat).Push(cmd.Context(), profile, args[0], ignoreHash, !yes)
+			rule := args[0]
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			jsonMode, _ := cmd.Flags().GetBool("json")
-			if jsonMode {
-				b, err := render.NATRulePushEnvelope(result)
+			if len(profiles) == 1 {
+				result, err := natRuleMutSvc(d, cat).Push(cmd.Context(), profiles[0], rule, ignoreHash, !yes)
 				if err != nil {
 					return err
 				}
-				_, err = cmd.OutOrStdout().Write(b)
-				return err
+				return renderNATRulePush(cmd, result)
 			}
-			if result.DryRun {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would push %s\nverbs: %v\n", result.Rule, result.Preview.Verbs)
-				return nil
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return natRuleMutSvc(d, cat).Push(ctx, profile, rule, ignoreHash, preflight || !yes)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "applied: %s (newDiffHash: %s)\n", result.Rule, result.NewDiffHash)
-			return nil
+			fr := svc.Run(cmd.Context(), "nat_rule_push", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	c.Flags().BoolVar(&yes, "yes", false, "apply the change (default is --dry-run)")
 	c.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip drift detection (use with care)")
+	AddProfileSetFlag(c)
 	return c
 }
 
@@ -119,34 +118,32 @@ func newNATRuleDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Short: "Delete a NAT rule",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for delete --yes (or pass --ignore-diff-hash)")
 			}
-			result, err := natRuleMutSvc(d, cat).Delete(cmd.Context(), profile, args[0], expectedHash, ignoreHash, !yes)
+			rule := args[0]
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			jsonMode, _ := cmd.Flags().GetBool("json")
-			if jsonMode {
-				b, err := render.NATRulePushEnvelope(result)
+			if len(profiles) == 1 {
+				result, err := natRuleMutSvc(d, cat).Delete(cmd.Context(), profiles[0], rule, expectedHash, ignoreHash, !yes)
 				if err != nil {
 					return err
 				}
-				_, err = cmd.OutOrStdout().Write(b)
-				return err
+				return renderNATRuleDelete(cmd, result)
 			}
-			if result.DryRun {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would delete %s\n", result.Rule)
-				return nil
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return natRuleMutSvc(d, cat).Delete(ctx, profile, rule, expectedHash, ignoreHash, preflight || !yes)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", result.Rule)
-			return nil
+			fr := svc.Run(cmd.Context(), "nat_rule_delete", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	c.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "hex hash from a prior `nat rule pull`")
 	c.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip drift detection")
 	c.Flags().BoolVar(&yes, "yes", false, "apply the deletion (default is --dry-run)")
+	AddProfileSetFlag(c)
 	return c
 }
 
@@ -179,6 +176,46 @@ func newNATRuleNewCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	}
 	c.Flags().StringVar(&fromRule, "from", "", "clone an existing rule's body as the starting template")
 	return c
+}
+
+// renderNATRulePush is the single-profile fast-path renderer for
+// `nat rule push`. Mirrors renderFirewallRulePush.
+func renderNATRulePush(cmd *cobra.Command, result *svc.NATRulePushResult) error {
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	if jsonMode {
+		b, err := render.NATRulePushEnvelope(result)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
+	}
+	if result.DryRun {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would push %s\nverbs: %v\n", result.Rule, result.Preview.Verbs)
+		return nil
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "applied: %s (newDiffHash: %s)\n", result.Rule, result.NewDiffHash)
+	return nil
+}
+
+// renderNATRuleDelete is the single-profile fast-path renderer for
+// `nat rule delete`. Mirrors renderFirewallRuleDelete.
+func renderNATRuleDelete(cmd *cobra.Command, result *svc.NATRulePushResult) error {
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	if jsonMode {
+		b, err := render.NATRulePushEnvelope(result)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
+	}
+	if result.DryRun {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would delete %s\n", result.Rule)
+		return nil
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", result.Rule)
+	return nil
 }
 
 // natRuleMutSvc builds a NATRuleSvc with Audit and BaseDir wired in,

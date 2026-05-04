@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/render"
+	"github.com/iainmoffat/sophosfw/internal/svc"
 )
 
 func newFirewallRulePullCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
@@ -82,30 +84,28 @@ func newFirewallRulePushCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Long:  "Defaults to --dry-run preview. Pass --yes to apply. Use --ignore-diff-hash to skip drift detection.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
-			result, err := firewallRuleSvc(d, cat).Push(cmd.Context(), profile, args[0], ignoreHash, !yes)
+			rule := args[0]
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			jsonMode, _ := cmd.Flags().GetBool("json")
-			if jsonMode {
-				b, err := render.FirewallRulePushEnvelope(result)
+			if len(profiles) == 1 {
+				result, err := firewallRuleSvc(d, cat).Push(cmd.Context(), profiles[0], rule, ignoreHash, !yes)
 				if err != nil {
 					return err
 				}
-				_, err = cmd.OutOrStdout().Write(b)
-				return err
+				return renderFirewallRulePush(cmd, result)
 			}
-			if result.DryRun {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would push %s\nverbs: %v\n", result.Rule, result.Preview.Verbs)
-				return nil
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return firewallRuleSvc(d, cat).Push(ctx, profile, rule, ignoreHash, preflight || !yes)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "applied: %s (newDiffHash: %s)\n", result.Rule, result.NewDiffHash)
-			return nil
+			fr := svc.Run(cmd.Context(), "firewall_rule_push", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	c.Flags().BoolVar(&yes, "yes", false, "apply the change (default is --dry-run)")
 	c.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip drift detection (use with care)")
+	AddProfileSetFlag(c)
 	return c
 }
 
@@ -117,35 +117,76 @@ func newFirewallRuleDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Short: "Delete a firewall rule",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for delete --yes (or pass --ignore-diff-hash)")
 			}
-			result, err := firewallRuleSvc(d, cat).Delete(cmd.Context(), profile, args[0], expectedHash, ignoreHash, !yes)
+			rule := args[0]
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			jsonMode, _ := cmd.Flags().GetBool("json")
-			if jsonMode {
-				b, err := render.FirewallRulePushEnvelope(result)
+			if len(profiles) == 1 {
+				result, err := firewallRuleSvc(d, cat).Delete(cmd.Context(), profiles[0], rule, expectedHash, ignoreHash, !yes)
 				if err != nil {
 					return err
 				}
-				_, err = cmd.OutOrStdout().Write(b)
-				return err
+				return renderFirewallRuleDelete(cmd, result)
 			}
-			if result.DryRun {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would delete %s\n", result.Rule)
-				return nil
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return firewallRuleSvc(d, cat).Delete(ctx, profile, rule, expectedHash, ignoreHash, preflight || !yes)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", result.Rule)
-			return nil
+			fr := svc.Run(cmd.Context(), "firewall_rule_delete", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	c.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "hex hash from a prior `firewall rule pull`")
 	c.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip drift detection")
 	c.Flags().BoolVar(&yes, "yes", false, "apply the deletion (default is --dry-run)")
+	AddProfileSetFlag(c)
 	return c
+}
+
+// renderFirewallRulePush is the single-profile fast-path renderer for
+// `firewall rule push`. Preserves the historical output:
+//   - JSON: emit the FirewallRulePushEnvelope
+//   - text dry-run: "DRY RUN: would push <rule> verbs: ..."
+//   - text apply:   "applied: <rule> (newDiffHash: ...)"
+func renderFirewallRulePush(cmd *cobra.Command, result *svc.FirewallRulePushResult) error {
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	if jsonMode {
+		b, err := render.FirewallRulePushEnvelope(result)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
+	}
+	if result.DryRun {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would push %s\nverbs: %v\n", result.Rule, result.Preview.Verbs)
+		return nil
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "applied: %s (newDiffHash: %s)\n", result.Rule, result.NewDiffHash)
+	return nil
+}
+
+// renderFirewallRuleDelete mirrors renderFirewallRulePush but emits
+// "would delete" / "deleted" text for the delete code path.
+func renderFirewallRuleDelete(cmd *cobra.Command, result *svc.FirewallRulePushResult) error {
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	if jsonMode {
+		b, err := render.FirewallRulePushEnvelope(result)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(b)
+		return err
+	}
+	if result.DryRun {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "DRY RUN: would delete %s\n", result.Rule)
+		return nil
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", result.Rule)
+	return nil
 }
 
 func newFirewallRuleNewCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {

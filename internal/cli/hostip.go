@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
@@ -221,7 +222,6 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		Use:   "create",
 		Short: "Create a new IP host object",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
 			input := svc.HostIPCreateInput{
 				Name:      name,
 				HostType:  hostType,
@@ -233,24 +233,22 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				input.StartIPAddress = startIP
 				input.EndIPAddress = endIP
 			}
-			result, err := hostIpSvc(d, cat).Create(cmd.Context(), profile, input, !yes)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			if result.DryRun {
-				jsonMode, _ := cmd.Flags().GetBool("json")
-				if jsonMode {
-					b, err := render.PreviewEnvelope(result.Preview)
-					if err != nil {
-						return err
-					}
-					_, err = cmd.OutOrStdout().Write(b)
+			if len(profiles) == 1 {
+				result, err := hostIpSvc(d, cat).Create(cmd.Context(), profiles[0], input, !yes)
+				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
-				return nil
+				return renderHostIpResult(cmd, "create", result)
 			}
-			return renderHostIpMutation(cmd, "create", result)
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return hostIpSvc(d, cat).Create(ctx, profile, input, preflight || !yes)
+			}
+			fr := svc.Run(cmd.Context(), "host_ip_create", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name of the host object")
@@ -261,6 +259,7 @@ func newHostIpCreateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.Flags().StringVar(&endIP, "end-ip", "", "end IP for IPRange")
 	cmd.Flags().StringVar(&ipFamily, "ip-family", "IPv4", "IP family (IPv4|IPv6)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	AddProfileSetFlag(cmd)
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -285,7 +284,6 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for update --yes (or pass --ignore-diff-hash)")
 			}
-			profile, _ := cmd.Flags().GetString("profile")
 			input := svc.HostIPCreateInput{
 				Name:      name,
 				HostType:  hostType,
@@ -297,24 +295,22 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 				input.StartIPAddress = startIP
 				input.EndIPAddress = endIP
 			}
-			result, err := hostIpSvc(d, cat).Update(cmd.Context(), profile, input, expectedHash, ignoreHash, !yes)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			if result.DryRun {
-				jsonMode, _ := cmd.Flags().GetBool("json")
-				if jsonMode {
-					b, err := render.PreviewEnvelope(result.Preview)
-					if err != nil {
-						return err
-					}
-					_, err = cmd.OutOrStdout().Write(b)
+			if len(profiles) == 1 {
+				result, err := hostIpSvc(d, cat).Update(cmd.Context(), profiles[0], input, expectedHash, ignoreHash, !yes)
+				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
-				return nil
+				return renderHostIpResult(cmd, "update", result)
 			}
-			return renderHostIpMutation(cmd, "update", result)
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return hostIpSvc(d, cat).Update(ctx, profile, input, expectedHash, ignoreHash, preflight || !yes)
+			}
+			fr := svc.Run(cmd.Context(), "host_ip_update", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name of the host object")
@@ -327,6 +323,7 @@ func newHostIpUpdateCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "expected diff hash for optimistic concurrency")
 	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip diff hash check")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	AddProfileSetFlag(cmd)
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
@@ -345,31 +342,51 @@ func newHostIpDeleteCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if yes && expectedHash == "" && !ignoreHash {
 				return fmt.Errorf("expected-diff-hash is required for delete --yes (or pass --ignore-diff-hash)")
 			}
-			profile, _ := cmd.Flags().GetString("profile")
-			result, err := hostIpSvc(d, cat).Delete(cmd.Context(), profile, args[0], expectedHash, ignoreHash, !yes)
+			target := args[0]
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			if result.DryRun {
-				jsonMode, _ := cmd.Flags().GetBool("json")
-				if jsonMode {
-					b, err := render.PreviewEnvelope(result.Preview)
-					if err != nil {
-						return err
-					}
-					_, err = cmd.OutOrStdout().Write(b)
+			if len(profiles) == 1 {
+				result, err := hostIpSvc(d, cat).Delete(cmd.Context(), profiles[0], target, expectedHash, ignoreHash, !yes)
+				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
-				return nil
+				return renderHostIpResult(cmd, "delete", result)
 			}
-			return renderHostIpMutation(cmd, "delete", result)
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				return hostIpSvc(d, cat).Delete(ctx, profile, target, expectedHash, ignoreHash, preflight || !yes)
+			}
+			fr := svc.Run(cmd.Context(), "host_ip_delete", profiles, op, !yes)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&expectedHash, "expected-diff-hash", "", "expected diff hash for optimistic concurrency")
 	cmd.Flags().BoolVar(&ignoreHash, "ignore-diff-hash", false, "skip diff hash check")
 	cmd.Flags().BoolVar(&yes, "yes", false, "apply the change (skip dry-run)")
+	AddProfileSetFlag(cmd)
 	return cmd
+}
+
+// renderHostIpResult is the single-profile fast-path renderer used by
+// host ip create/update/delete. It preserves the historical behavior:
+// dry-run prints the preview envelope or "Dry run: would send N bytes",
+// apply prints either a mutation envelope (--json) or "<op> applied".
+func renderHostIpResult(cmd *cobra.Command, operation string, result *svc.HostIPMutationResult) error {
+	if result.DryRun {
+		jsonMode, _ := cmd.Flags().GetBool("json")
+		if jsonMode {
+			b, err := render.PreviewEnvelope(result.Preview)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(b)
+			return err
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dry run: would send %d bytes\n", result.Preview.WouldSendBytes)
+		return nil
+	}
+	return renderHostIpMutation(cmd, operation, result)
 }
 
 func renderHostIpMutation(cmd *cobra.Command, operation string, result *svc.HostIPMutationResult) error {

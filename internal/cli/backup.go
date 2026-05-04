@@ -10,6 +10,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -32,7 +33,6 @@ func newBackupCmd(d RootDeps) *cobra.Command {
 		Use:   "backup",
 		Short: "Snapshot the firewall config (per-record YAML tree)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
 			opts := svc.BackupCreateOptions{OutDir: outDir}
 			if typesCSV != "" {
 				opts.Types = splitCSV(typesCSV)
@@ -44,24 +44,42 @@ func newBackupCmd(d RootDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := s.Create(cmd.Context(), profile, opts)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-			jsonMode, _ := cmd.Flags().GetBool("json")
-			if jsonMode {
-				body, err := render.BackupCreateEnvelope(result)
+			if len(profiles) == 1 {
+				result, err := s.Create(cmd.Context(), profiles[0], opts)
 				if err != nil {
 					return err
 				}
-				_, err = cmd.OutOrStdout().Write(body)
-				return err
+				jsonMode, _ := cmd.Flags().GetBool("json")
+				if jsonMode {
+					body, err := render.BackupCreateEnvelope(result)
+					if err != nil {
+						return err
+					}
+					_, err = cmd.OutOrStdout().Write(body)
+					return err
+				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Backup written: %s\n", result.Path)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Profile: %s\n", result.Profile)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Records: %d across %d types\n",
+					result.TotalRecords, len(result.TypesIncluded))
+				return nil
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Backup written: %s\n", result.Path)
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Profile: %s\n", result.Profile)
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Records: %d across %d types\n",
-				result.TotalRecords, len(result.TypesIncluded))
-			return nil
+			// Fan-out: backup is a read-side op (no real "preflight" —
+			// snapshotting is itself the operation). Pre-flight phase is
+			// a cheap no-op so all per-profile work happens in the apply
+			// phase, sequentially with fail-fast.
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				if preflight {
+					return nil, nil
+				}
+				return s.Create(ctx, profile, opts)
+			}
+			fr := svc.Run(cmd.Context(), "backup_create", profiles, op, false)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().StringVar(&outDir, "out", "",
@@ -70,6 +88,7 @@ func newBackupCmd(d RootDeps) *cobra.Command {
 		"comma-separated catalog tags to include (default: all)")
 	cmd.Flags().StringVar(&excludeCSV, "exclude", "",
 		"comma-separated catalog tags to skip (mutually exclusive with --types)")
+	AddProfileSetFlag(cmd)
 
 	cmd.AddCommand(newBackupListCmd(d))
 	cmd.AddCommand(newBackupRotateCmd(d))

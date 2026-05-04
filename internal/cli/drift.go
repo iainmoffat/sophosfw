@@ -15,6 +15,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -38,7 +39,6 @@ func newDriftCmd(d RootDeps) *cobra.Command {
 		Short: "Compare a snapshot to current firewall state",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			profile, _ := cmd.Flags().GetString("profile")
 			opts := svc.DriftOptions{Latest: latest, Force: force}
 			if len(args) == 1 {
 				opts.SnapshotPath = args[0]
@@ -61,40 +61,58 @@ func newDriftCmd(d RootDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := bs.Drift(cmd.Context(), profile, opts)
+			profiles, err := resolveTargetProfiles(cmd, d.Config)
 			if err != nil {
 				return err
 			}
-
-			jsonMode, _ := cmd.Flags().GetBool("json")
-			if jsonMode {
-				body, err := render.DriftEnvelope(result)
+			if len(profiles) == 1 {
+				result, err := bs.Drift(cmd.Context(), profiles[0], opts)
 				if err != nil {
 					return err
 				}
-				if _, err := cmd.OutOrStdout().Write(body); err != nil {
-					return err
-				}
-				if _, err := cmd.OutOrStdout().Write([]byte("\n")); err != nil {
-					return err
-				}
-			} else {
-				if err := render.DriftHumanText(cmd.OutOrStdout(), result); err != nil {
-					return err
-				}
-			}
 
-			// Non-zero summary → return the drift-detected sentinel so
-			// HandleError maps to exit code 1 without printing an error
-			// envelope. Output has already been written above.
-			if result.Summary.Added+result.Summary.Modified+result.Summary.Removed > 0 {
-				return ErrDriftDetected
+				jsonMode, _ := cmd.Flags().GetBool("json")
+				if jsonMode {
+					body, err := render.DriftEnvelope(result)
+					if err != nil {
+						return err
+					}
+					if _, err := cmd.OutOrStdout().Write(body); err != nil {
+						return err
+					}
+					if _, err := cmd.OutOrStdout().Write([]byte("\n")); err != nil {
+						return err
+					}
+				} else {
+					if err := render.DriftHumanText(cmd.OutOrStdout(), result); err != nil {
+						return err
+					}
+				}
+
+				// Non-zero summary → return the drift-detected sentinel so
+				// HandleError maps to exit code 1 without printing an error
+				// envelope. Output has already been written above.
+				if result.Summary.Added+result.Summary.Modified+result.Summary.Removed > 0 {
+					return ErrDriftDetected
+				}
+				return nil
 			}
-			return nil
+			// Fan-out: drift is a read-side op. Pre-flight is a no-op;
+			// the apply phase per profile runs the actual comparison and
+			// captures the summary in ApplyResult.
+			op := func(ctx context.Context, profile string, preflight bool) (any, error) {
+				if preflight {
+					return nil, nil
+				}
+				return bs.Drift(ctx, profile, opts)
+			}
+			fr := svc.Run(cmd.Context(), "drift_check", profiles, op, false)
+			return printFanout(cmd, fr)
 		},
 	}
 	cmd.Flags().BoolVar(&latest, "latest", false, "use most recent snapshot under default location")
 	cmd.Flags().BoolVar(&force, "force", false, "compare even if snapshot's profile differs from current")
 	cmd.Flags().StringVar(&typesCSV, "types", "", "comma-separated catalog tags to check (default: all in snapshot)")
+	AddProfileSetFlag(cmd)
 	return cmd
 }
