@@ -13,6 +13,7 @@ import (
 func newHostCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	cmd := &cobra.Command{Use: "host", Short: "Host objects (first-class)"}
 	cmd.AddCommand(newHostIpCmd(d, cat))
+	cmd.AddCommand(newIPHostGroupCmd(d, cat))
 	return cmd
 }
 
