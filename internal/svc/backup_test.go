@@ -484,6 +484,370 @@ func TestBackupSvc_Rotate_RejectsNegativeKeep(t *testing.T) {
 	require.Contains(t, err.Error(), "--keep")
 }
 
+// writeFullSnapshot builds a complete snapshot directory under
+// <baseDir>/profiles/home/backups/<dirName>: _meta.yaml at the root
+// plus per-type subdirs containing the supplied records as
+// <slug>.yaml, each with an injected _diffHash matching what Create
+// would have written. recordsByTag values must already be in
+// map[string]any form (post-toMap); _diffHash is computed and added
+// here.
+func writeFullSnapshot(t *testing.T, baseDir, dirName, profile string, createdAt time.Time, recordsByTag map[string][]map[string]any) string {
+	t.Helper()
+	dir := filepath.Join(baseDir, "profiles", profile, "backups", dirName)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	counts := map[string]int{}
+	total := 0
+	types := make([]string, 0, len(recordsByTag))
+	for tag := range recordsByTag {
+		types = append(types, tag)
+	}
+	sort.Strings(types)
+	for _, tag := range types {
+		records := recordsByTag[tag]
+		if len(records) == 0 {
+			continue
+		}
+		typeDir := filepath.Join(dir, tag)
+		require.NoError(t, os.MkdirAll(typeDir, 0o755))
+		for _, rec := range records {
+			recName, _ := rec["Name"].(string)
+			require.NotEmpty(t, recName, "writeFullSnapshot record missing Name")
+			// Skip auto-hash if caller pre-set _diffHash (lets tests
+			// exercise the short-circuit path with explicit values).
+			if _, has := rec["_diffHash"]; !has {
+				h, err := DiffHash(rec)
+				require.NoError(t, err)
+				rec["_diffHash"] = h
+			}
+			body, err := marshalCanonicalYAML(rec)
+			require.NoError(t, err)
+			slug := strings.ToLower(recName)
+			require.NoError(t, os.WriteFile(filepath.Join(typeDir, slug+".yaml"), body, 0o644))
+			counts[tag]++
+			total++
+		}
+	}
+	meta := backupMeta{
+		Schema:          MetaSchemaName,
+		Profile:         profile,
+		URL:             "https://x:4444",
+		SophosfwVersion: "test",
+		CreatedAt:       createdAt.UTC().Format(time.RFC3339),
+		CatalogVersion:  "1",
+		TypesIncluded:   types,
+		RecordCounts:    counts,
+		TotalRecords:    total,
+	}
+	metaBytes, err := yaml.Marshal(meta)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "_meta.yaml"), metaBytes, 0o644))
+	return dir
+}
+
+// rawIPHostMap mirrors rawIPHost but returns the post-coercion
+// map[string]any shape that toMap would produce from the typed parser.
+// Used to seed snapshot bodies in drift tests.
+func rawIPHostMap(name, ip string) map[string]any {
+	return map[string]any{
+		"Name":      name,
+		"IPFamily":  "IPv4",
+		"HostType":  "IP",
+		"IPAddress": ip,
+	}
+}
+
+func TestBackupSvc_Drift_NoChanges_EmptyResult(t *testing.T) {
+	// Snapshot has one IPHost; live returns the same one with the same
+	// fields. Expect zero changes, one unchanged record.
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.1")},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	snapTime := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home", snapTime, map[string][]map[string]any{
+		"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+	})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: snap})
+	require.NoError(t, err)
+	require.Empty(t, result.Changes)
+	require.Equal(t, 0, result.Summary.Added)
+	require.Equal(t, 0, result.Summary.Modified)
+	require.Equal(t, 0, result.Summary.Removed)
+	require.Equal(t, 1, result.Summary.Unchanged)
+	require.Equal(t, "home", result.Profile)
+	require.Equal(t, snap, result.SnapshotPath)
+	require.True(t, result.SnapshotCreatedAt.Equal(snapTime),
+		"snapshotCreatedAt parsed: got %v want %v", result.SnapshotCreatedAt, snapTime)
+}
+
+func TestBackupSvc_Drift_AddedRecord_ReportsAdded(t *testing.T) {
+	// Live has two records; snapshot has one. The extra live record is
+	// "added".
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.1"), rawIPHost("DMZ", "10.0.1.1")},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+		})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: snap})
+	require.NoError(t, err)
+	require.Len(t, result.Changes, 1)
+	require.Equal(t, "added", result.Changes[0].Change)
+	require.Equal(t, "IPHost", result.Changes[0].Type)
+	require.Equal(t, "DMZ", result.Changes[0].Name)
+	require.NotNil(t, result.Changes[0].Body)
+	// _diffHash must be stripped from the reported body.
+	_, hasHash := result.Changes[0].Body["_diffHash"]
+	require.False(t, hasHash, "added body should not include _diffHash")
+	require.Equal(t, "10.0.1.1", result.Changes[0].Body["IPAddress"])
+	require.Equal(t, 1, result.Summary.Added)
+	require.Equal(t, 1, result.Summary.Unchanged) // LAN matches
+}
+
+func TestBackupSvc_Drift_RemovedRecord_ReportsRemoved(t *testing.T) {
+	// Snapshot has two; live has one. Missing record is "removed".
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.1")},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {rawIPHostMap("LAN", "10.0.0.1"), rawIPHostMap("DMZ", "10.0.1.1")},
+		})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: snap})
+	require.NoError(t, err)
+	require.Len(t, result.Changes, 1)
+	require.Equal(t, "removed", result.Changes[0].Change)
+	require.Equal(t, "IPHost", result.Changes[0].Type)
+	require.Equal(t, "DMZ", result.Changes[0].Name)
+	// Removed records carry no body and no diff.
+	require.Empty(t, result.Changes[0].Diff)
+	require.Nil(t, result.Changes[0].Body)
+	require.Equal(t, 1, result.Summary.Removed)
+	require.Equal(t, 1, result.Summary.Unchanged)
+}
+
+func TestBackupSvc_Drift_ModifiedRecord_ReportsModifiedWithDiff(t *testing.T) {
+	// Snapshot LAN: 10.0.0.1; live LAN: 10.0.0.99. Same Name,
+	// different IPAddress → "modified" with a unified diff.
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.99")},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+		})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: snap})
+	require.NoError(t, err)
+	require.Len(t, result.Changes, 1)
+	require.Equal(t, "modified", result.Changes[0].Change)
+	require.Equal(t, "IPHost", result.Changes[0].Type)
+	require.Equal(t, "LAN", result.Changes[0].Name)
+	require.NotEmpty(t, result.Changes[0].Diff, "modified records carry a unified diff")
+	// Diff should mention the old and new IPs and reference the labels.
+	require.Contains(t, result.Changes[0].Diff, "10.0.0.1")
+	require.Contains(t, result.Changes[0].Diff, "10.0.0.99")
+	require.Contains(t, result.Changes[0].Diff, "snapshot:IPHost/LAN")
+	require.Contains(t, result.Changes[0].Diff, "live:IPHost/LAN")
+	// The injected _diffHash must NOT appear in the diff (stripped).
+	require.NotContains(t, result.Changes[0].Diff, "_diffHash")
+	require.Equal(t, 1, result.Summary.Modified)
+}
+
+func TestBackupSvc_Drift_HashShortCircuit_SkipsUnchanged(t *testing.T) {
+	// Snapshot record carries _diffHash="forced-hash"; we manually
+	// post-process the live record map so its _diffHash matches. Even
+	// though the underlying bodies differ, the hash short-circuit must
+	// classify the record as unchanged and produce no diff.
+	//
+	// Implementation detail: we can't get a forced hash onto the live
+	// side via the scripted client (toMap is called by Drift, not by
+	// the client), so we wedge an IPHost whose toMap result happens to
+	// be deterministic and pin its hash on both sides by writing the
+	// snapshot with the same forced "_diffHash" string the live record
+	// would compute via the standard rules — the simplest way is:
+	//   1. compute the canonical hash of the live body (post-toMap)
+	//   2. write the snapshot with a body that *differs* but reuses
+	//      that same explicit _diffHash
+	// Then the short-circuit kicks in and unchanged++ even though
+	// bodies disagree. This is exactly the behaviour we want to verify.
+	liveRaw := rawIPHost("LAN", "10.0.0.99")
+	liveMap := rawIPHostMap("LAN", "10.0.0.99")
+	liveHash, err := DiffHash(liveMap)
+	require.NoError(t, err)
+
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {liveRaw},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+
+	// Snapshot body is intentionally different (10.0.0.1) but pinned
+	// to the same hash → short-circuit must classify as unchanged.
+	snapRec := rawIPHostMap("LAN", "10.0.0.1")
+	snapRec["_diffHash"] = liveHash
+
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {snapRec},
+		})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: snap})
+	require.NoError(t, err)
+	require.Empty(t, result.Changes,
+		"hash short-circuit should classify as unchanged even when bodies differ; got %+v", result.Changes)
+	require.Equal(t, 1, result.Summary.Unchanged)
+	require.Equal(t, 0, result.Summary.Modified)
+}
+
+func TestBackupSvc_Drift_RejectsProfileMismatch(t *testing.T) {
+	// Snapshot's _meta.yaml says profile "other"; current is "home".
+	// Without --force, Drift refuses.
+	cl := &scriptedBodyClient{}
+	bs, baseDir := newBackupSvc(t, cl)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "other",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+		})
+
+	_, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: snap})
+	require.Error(t, err)
+	require.ErrorIs(t, err, sophos.ErrInvalidRequest)
+	require.Contains(t, err.Error(), "profile")
+	require.Contains(t, err.Error(), "--force")
+}
+
+func TestBackupSvc_Drift_ForceOverridesProfileMismatch(t *testing.T) {
+	// Same setup as the previous test, with Force=true. Drift proceeds.
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.1")},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "other",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+		})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{
+		SnapshotPath: snap,
+		Force:        true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "home", result.Profile,
+		"result reflects the *current* profile, not the snapshot's")
+	require.Equal(t, 1, result.Summary.Unchanged)
+}
+
+func TestBackupSvc_Drift_LatestResolvesNewestSnapshot(t *testing.T) {
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.1")},
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	// Three snapshots; the newest must be picked.
+	t1 := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	writeFullSnapshot(t, baseDir, "2026-05-01T10-00-00Z", "home", t1, map[string][]map[string]any{
+		"IPHost": {rawIPHostMap("OLDEST", "10.0.0.1")},
+	})
+	writeFullSnapshot(t, baseDir, "2026-05-02T10-00-00Z", "home", t2, map[string][]map[string]any{
+		"IPHost": {rawIPHostMap("MIDDLE", "10.0.0.1")},
+	})
+	newest := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home", t3, map[string][]map[string]any{
+		"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+	})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{Latest: true})
+	require.NoError(t, err)
+	require.Equal(t, newest, result.SnapshotPath)
+	// Snapshot's only record (LAN) matches live, so no changes.
+	require.Empty(t, result.Changes)
+}
+
+func TestBackupSvc_Drift_LatestAndPathTogether_Rejects(t *testing.T) {
+	bs, _ := newBackupSvc(t, &scriptedBodyClient{})
+	_, err := bs.Drift(context.Background(), "", DriftOptions{
+		SnapshotPath: "/tmp/whatever",
+		Latest:       true,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, sophos.ErrInvalidRequest)
+	require.Contains(t, err.Error(), "mutually exclusive")
+}
+
+func TestBackupSvc_Drift_NoSnapshots_ReturnsNotFound(t *testing.T) {
+	bs, _ := newBackupSvc(t, &scriptedBodyClient{})
+	_, err := bs.Drift(context.Background(), "", DriftOptions{Latest: true})
+	require.Error(t, err)
+	require.ErrorIs(t, err, sophos.ErrNotFound)
+}
+
+func TestBackupSvc_Drift_PerTypeFilter(t *testing.T) {
+	// Snapshot has IPHost + Zone records. Live has changes in BOTH
+	// types, but we ask Drift to only check IPHost. Zone changes must
+	// be invisible.
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"IPHost": {rawIPHost("LAN", "10.0.0.99")},  // changed
+			"Zone":   {rawZone("LAN"), rawZone("WAN")}, // added WAN
+		},
+	}
+	bs, baseDir := newBackupSvc(t, cl)
+	snap := writeFullSnapshot(t, baseDir, "2026-05-03T10-00-00Z", "home",
+		time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+		map[string][]map[string]any{
+			"IPHost": {rawIPHostMap("LAN", "10.0.0.1")},
+			"Zone":   {{"Name": "LAN", "Type": "LAN"}},
+		})
+
+	result, err := bs.Drift(context.Background(), "", DriftOptions{
+		SnapshotPath: snap,
+		Types:        []string{"IPHost"},
+	})
+	require.NoError(t, err)
+
+	// Only IPHost changes should be reported.
+	for _, c := range result.Changes {
+		require.Equal(t, "IPHost", c.Type,
+			"with Types=[IPHost], unexpected Zone change %+v", c)
+	}
+	require.Equal(t, 1, result.Summary.Modified)
+	require.Equal(t, 0, result.Summary.Added)
+	require.Equal(t, 0, result.Summary.Removed)
+
+	// And the client should never have been asked for Zone.
+	for _, called := range cl.calls {
+		require.NotEqual(t, "Zone", called,
+			"per-type filter must skip the Zone live fetch")
+	}
+}
+
 func TestBackupSvc_Create_StubRecordsSkipped(t *testing.T) {
 	// A real record + a stub (Name="") for the same tag. Stub must not
 	// produce a file, must not contribute to counts, and must not error.

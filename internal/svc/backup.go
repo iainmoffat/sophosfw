@@ -364,3 +364,298 @@ func (s *BackupSvc) Rotate(profileName string, keep int) ([]string, error) {
 	}
 	return deleted, nil
 }
+
+// DriftOptions controls Drift. SnapshotPath and Latest are mutually
+// exclusive. Types restricts the comparison to a subset of the
+// catalog tags recorded in the snapshot's _meta.yaml; empty means
+// "all types in the snapshot". Force overrides the profile-mismatch
+// refusal so a snapshot from one firewall can be diffed against a
+// different firewall's live state (rare; usually a mistake).
+type DriftOptions struct {
+	SnapshotPath string
+	Latest       bool
+	Types        []string
+	Force        bool
+}
+
+// DriftSummaryPerType is the per-type tally rolled up into DriftSummary.
+type DriftSummaryPerType struct {
+	Added, Modified, Removed, Unchanged int
+}
+
+// DriftSummary is the global tally plus a per-type breakdown.
+type DriftSummary struct {
+	Added, Modified, Removed, Unchanged int
+	PerType                             map[string]DriftSummaryPerType
+}
+
+// DriftChange is one record-level difference. Diff is populated only
+// for "modified"; Body is populated only for "added"; "removed" carries
+// only Type+Name+Change. _diffHash is stripped from any Body before
+// it lands here.
+type DriftChange struct {
+	Type   string
+	Name   string
+	Change string         // "added" | "modified" | "removed"
+	Diff   string         // unified diff, only for "modified"
+	Body   map[string]any // only for "added"
+}
+
+// DriftResult is the render-friendly result returned by Drift.
+type DriftResult struct {
+	SnapshotPath      string
+	Profile           string
+	SnapshotCreatedAt time.Time
+	CheckedAt         time.Time
+	Summary           DriftSummary
+	Changes           []DriftChange
+}
+
+// Drift compares the snapshot at opts.SnapshotPath (or the most recent
+// snapshot under the default location when opts.Latest is true) against
+// the firewall's current state, per type.
+//
+// Per-record classification, in order:
+//
+//   - removed: in snapshot, not in live
+//   - unchanged: hash short-circuit when both sides have a non-empty
+//     _diffHash and the hashes match (no diff computed)
+//   - unchanged: recomputed-hash equality (defensive — a snapshot
+//     written by an older sophosfw might lack _diffHash)
+//   - modified: hashes differ; a unified diff is computed over the
+//     canonical YAML bodies with _diffHash stripped from both sides
+//   - added: in live, not in snapshot
+//
+// Live records are walked through toMap (the same path Create uses
+// when writing snapshot records) so the hashing inputs match exactly.
+//
+// Profile-mismatch refusal: if the snapshot's _meta.yaml records a
+// different profile than the active one, Drift errors with
+// ErrInvalidRequest unless opts.Force is set. This prevents silently
+// diffing one firewall's snapshot against another firewall's live
+// state.
+func (s *BackupSvc) Drift(ctx context.Context, profileName string, opts DriftOptions) (*DriftResult, error) {
+	_, name, err := s.Inner.Config.ActiveProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshotPath, err := s.resolveSnapshotPath(name, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	meta, err := readBackupMeta(snapshotPath)
+	if err != nil {
+		return nil, fmt.Errorf("read snapshot meta: %w", err)
+	}
+	if !opts.Force && meta.Profile != name {
+		return nil, fmt.Errorf("%w: snapshot is from profile %q, current is %q (use --force to override)",
+			sophos.ErrInvalidRequest, meta.Profile, name)
+	}
+
+	types := meta.TypesIncluded
+	if len(opts.Types) > 0 {
+		// Validate each requested type against the catalog so a typo
+		// surfaces as ErrInvalidRequest rather than as silent "no
+		// records found".
+		out := make([]string, 0, len(opts.Types))
+		for _, t := range opts.Types {
+			entry, ok := s.Catalog.Resolve(t)
+			if !ok {
+				return nil, fmt.Errorf("%w: unknown type %q", sophos.ErrInvalidRequest, t)
+			}
+			out = append(out, entry.Tag)
+		}
+		types = out
+	}
+
+	perType := map[string]DriftSummaryPerType{}
+	var changes []DriftChange
+
+	for _, tag := range types {
+		snap, err := loadSnapshotRecords(snapshotPath, tag)
+		if err != nil {
+			return nil, fmt.Errorf("load snapshot %s: %w", tag, err)
+		}
+		list, err := s.Inner.List(ctx, profileName, tag, nil)
+		if err != nil {
+			return nil, fmt.Errorf("list live %s: %w", tag, err)
+		}
+		// Coerce live records through toMap so hashes computed here
+		// match hashes computed at snapshot-write time (Create runs the
+		// same coercion before injecting _diffHash).
+		liveByName := map[string]map[string]any{}
+		if list != nil {
+			for _, item := range list.Items {
+				rec, mErr := toMap(item)
+				if mErr != nil {
+					return nil, fmt.Errorf("coerce live %s record: %w", tag, mErr)
+				}
+				if rec == nil {
+					continue
+				}
+				if n, _ := rec["Name"].(string); n != "" {
+					liveByName[n] = rec
+				}
+			}
+		}
+
+		var sum DriftSummaryPerType
+		for snapName, snapBody := range snap {
+			liveBody, present := liveByName[snapName]
+			if !present {
+				changes = append(changes, DriftChange{Type: tag, Name: snapName, Change: "removed"})
+				sum.Removed++
+				continue
+			}
+			// Hash short-circuit: when both sides carry a non-empty
+			// _diffHash and they match, classify unchanged without
+			// re-marshalling. This is the hot path for unchanged
+			// records under typical operational use.
+			snapHash, _ := snapBody["_diffHash"].(string)
+			liveHash, _ := liveBody["_diffHash"].(string)
+			if snapHash != "" && liveHash != "" && snapHash == liveHash {
+				sum.Unchanged++
+				continue
+			}
+			// Recompute either side that was missing a hash. DiffHash
+			// strips _diffHash internally so a stripped copy isn't
+			// strictly required, but we pass one for symmetry.
+			if snapHash == "" {
+				snapHash, _ = DiffHash(stripDiffHash(snapBody))
+			}
+			if liveHash == "" {
+				liveHash, _ = DiffHash(stripDiffHash(liveBody))
+			}
+			if snapHash == liveHash {
+				sum.Unchanged++
+				continue
+			}
+			diff, derr := unifiedDiffOf(snapBody, liveBody, tag, snapName)
+			if derr != nil {
+				return nil, derr
+			}
+			changes = append(changes, DriftChange{
+				Type: tag, Name: snapName, Change: "modified", Diff: diff,
+			})
+			sum.Modified++
+		}
+		// Added: in live, not in snapshot. Strip _diffHash from the
+		// reported body so consumers see the firewall fields only.
+		for liveName, liveBody := range liveByName {
+			if _, present := snap[liveName]; !present {
+				changes = append(changes, DriftChange{
+					Type: tag, Name: liveName, Change: "added", Body: stripDiffHash(liveBody),
+				})
+				sum.Added++
+			}
+		}
+		perType[tag] = sum
+	}
+
+	summary := DriftSummary{PerType: perType}
+	for _, ps := range perType {
+		summary.Added += ps.Added
+		summary.Modified += ps.Modified
+		summary.Removed += ps.Removed
+		summary.Unchanged += ps.Unchanged
+	}
+
+	snapshotCreatedAt, _ := time.Parse(time.RFC3339, meta.CreatedAt)
+	return &DriftResult{
+		SnapshotPath:      snapshotPath,
+		Profile:           name,
+		SnapshotCreatedAt: snapshotCreatedAt,
+		CheckedAt:         s.now(),
+		Summary:           summary,
+		Changes:           changes,
+	}, nil
+}
+
+// resolveSnapshotPath picks the snapshot to compare against. Explicit
+// path wins; --latest resolves to the newest entry returned by List;
+// supplying both is an invalid request. No snapshots → ErrNotFound.
+func (s *BackupSvc) resolveSnapshotPath(profile string, opts DriftOptions) (string, error) {
+	if opts.SnapshotPath != "" && opts.Latest {
+		return "", fmt.Errorf("%w: snapshot path and --latest are mutually exclusive", sophos.ErrInvalidRequest)
+	}
+	if opts.SnapshotPath != "" {
+		return opts.SnapshotPath, nil
+	}
+	entries, err := s.List(profile)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("%w: no snapshots found for profile %q", sophos.ErrNotFound, profile)
+	}
+	return entries[0].Path, nil
+}
+
+// loadSnapshotRecords reads every <snapshotPath>/<tag>/*.yaml file into
+// a map keyed by the record's Name. A missing type subdir is treated as
+// an empty set — a snapshot may legitimately omit a type that had no
+// records at create time.
+func loadSnapshotRecords(snapshotPath, tag string) (map[string]map[string]any, error) {
+	typeDir := filepath.Join(snapshotPath, tag)
+	entries, err := os.ReadDir(typeDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]map[string]any{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]any{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(typeDir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var body map[string]any
+		if err := yaml.Unmarshal(raw, &body); err != nil {
+			return nil, err
+		}
+		if n, _ := body["Name"].(string); n != "" {
+			out[n] = body
+		}
+	}
+	return out, nil
+}
+
+// stripDiffHash returns a shallow copy of m with the _diffHash key
+// removed. nil-safe.
+func stripDiffHash(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		if k == "_diffHash" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// unifiedDiffOf renders the per-record diff text reported in
+// DriftChange.Diff. Both sides are stripped of _diffHash and marshalled
+// to canonical (sorted-key) YAML so diff output is deterministic and
+// only reflects body changes.
+func unifiedDiffOf(a, b map[string]any, tag, name string) (string, error) {
+	ay, err := marshalCanonicalYAML(stripDiffHash(a))
+	if err != nil {
+		return "", err
+	}
+	by, err := marshalCanonicalYAML(stripDiffHash(b))
+	if err != nil {
+		return "", err
+	}
+	aLabel := fmt.Sprintf("snapshot:%s/%s", tag, name)
+	bLabel := fmt.Sprintf("live:%s/%s", tag, name)
+	return draft.UnifiedDiff(ay, by, aLabel, bLabel), nil
+}
