@@ -6,6 +6,12 @@
 // mutating tools and adds list/show modeled after T8's vpn_ipsec read
 // surface (with the generic ObjectList/Object envelopes since
 // IPsecPolicy has no type-specific envelope helpers).
+//
+// Dormant in v0.13.1 — see svc/ipsecpolicy.go header. Excluded from
+// default builds behind the `ipsecpolicy_dormant` build tag.
+
+//go:build ipsecpolicy_dormant
+
 package mcp
 
 import (

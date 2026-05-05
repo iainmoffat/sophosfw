@@ -113,15 +113,6 @@ objects:
     typedParser: ""
     mutable: true
 
-  - tag: IPsecPolicy
-    aliases: [ipsec-policy, vpn-ipsec-policy]
-    description: "IPsec (Phase 2) encryption policies"
-    columns: [Name, KeyLifetime, KeyNegotiationTries]
-    filterable: [Name]
-    usageTag: ""
-    typedParser: ""
-    mutable: true
-
   - tag: VPNProfile
     aliases: [ike-profile, vpn-ike-profile, vpn-profile]
     description: "IKE (Phase 1) policies / VPN profiles"

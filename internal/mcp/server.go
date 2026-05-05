@@ -86,7 +86,11 @@ func (s *Server) registerAll() {
 	s.registerFirewallRule()
 	s.registerNATRule()
 	s.registerVPNIPsec()
-	s.registerIPsecPolicy()
+	// Note: IPsecPolicy MCP registration deferred — Sophos 22.x XML API
+	// does not recognize "IPsecPolicy" as a valid tag (probe returned
+	// "Input request module is Invalid"). The svc/CLI/MCP code is
+	// retained for future re-wiring once the correct tag name is
+	// discovered. See Phase 15.x roadmap follow-up.
 	s.registerVPNProfile()
 	s.registerBackup()
 	s.registerProfileSet()

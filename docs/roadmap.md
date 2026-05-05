@@ -41,6 +41,22 @@ Tracking decision: surface the behavior loudly via documentation, then
 ship the `--exclude-dynamic` shortcut. Skip per-type exit-code
 suppression unless real cron usage shows the noise.
 
+## Phase 15.x — IPsecPolicy tag discovery (deferred)
+
+Phase 15 integration testing on a live testvm found that Sophos
+22.x XML API does not recognize `IPsecPolicy` as a valid tag
+(returns "Input request module is Invalid"). The svc/CLI/MCP code
+for IPsecPolicy is retained but not registered (see vpn.go and
+mcp/server.go comments). VPNIPsecConnection and VPNProfile work
+correctly.
+
+Follow-up: discover the correct Sophos XML tag for IPsec Phase 2
+encryption policies and re-wire the registration. Candidate tag
+names (probed and rejected): IPsecPolicy, VPNIPsecPolicy,
+IPSecPolicy, VPNIPSecPolicy, IPSec, VPNPolicy. May require checking
+Sophos 22.x developer docs or inspecting an actual VPNIPsecConnection
+body once a tunnel is configured on the testvm.
+
 ## Phase 3 — First-class read-only commands
 **Goal:** ergonomic wrappers over the catalog for high-traffic objects.
 **New commands:** host ip list/show/search/usage, service list/show/usage, firewall rule list/show, nat rule list/show.

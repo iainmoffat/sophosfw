@@ -3,6 +3,15 @@
 // Body-as-map create/update/delete for IPsecPolicy objects. Pure mirror
 // of the Phase 12 IPHostGroupSvc template with IPsecPolicy substitutions;
 // see docs/superpowers/plans/2026-05-03-sophosfw-phase15.md.
+//
+// Dormant in v0.13.1 — Sophos 22.x XML API does not recognize the
+// "IPsecPolicy" tag (probe returned "Input request module is Invalid").
+// This file is excluded from default builds behind the
+// `ipsecpolicy_dormant` build tag and retained for future re-wiring
+// once the correct tag name is discovered. See Phase 15.x roadmap.
+
+//go:build ipsecpolicy_dormant
+
 package svc
 
 import (

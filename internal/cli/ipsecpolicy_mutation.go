@@ -3,6 +3,12 @@
 // `vpn policy list|show|create|update|delete` over the body-as-map svc
 // layer. Mirrors internal/cli/iphostgroup_mutation.go (Phase 12 T6) with
 // list/show added (the spec acceptance lists 5 sub-commands per type).
+//
+// Dormant in v0.13.1 — see svc/ipsecpolicy.go header. Excluded from
+// default builds behind the `ipsecpolicy_dormant` build tag.
+
+//go:build ipsecpolicy_dormant
+
 package cli
 
 import (

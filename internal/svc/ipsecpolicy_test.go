@@ -1,3 +1,12 @@
+// IPsecPolicy is dormant in v0.13.1 — Sophos 22.x XML API does not
+// recognize the "IPsecPolicy" tag (probe returned "Input request module
+// is Invalid"). The svc/CLI/MCP code is retained for future re-wiring
+// once the correct tag name is discovered. These tests require the
+// catalog entry to be present, so they are excluded from default builds
+// behind the `ipsecpolicy_dormant` build tag. See Phase 15.x roadmap.
+
+//go:build ipsecpolicy_dormant
+
 package svc
 
 import (
