@@ -2,19 +2,24 @@
 
 ## Skill location
 
-The agent skill for `sophosfw` is managed through skillshare, a multi-project
-skill distribution system:
+The agent skill for `sophosfw` is **not** part of this repository. It is
+managed through `skillshare`, a multi-project skill distribution system,
+and lives in a separate `ai-tooling/skillshare` repo. Each developer's
+local `~/code/ai-tooling/skillshare/skills/sophos-firewall/` is the
+canonical source.
 
-```
-.claude/skills/sophos-firewall/                    (symlink)
-    → /Users/ipm/code/ai-tooling/skillshare/skills/sophos-firewall/  (canonical)
-```
+For local development, `skillshare` symlinks the skill into
+`.claude/skills/sophos-firewall/` (gitignored — never published from
+this repo). If you've cloned this repo and want the skill, install
+`skillshare` and run its sync; the skill will appear at
+`.claude/skills/sophos-firewall/` automatically.
 
 ## Why skillshare
 
-The canonical skill source lives in `ai-tooling/skillshare/skills/sophos-firewall/`
-so it can be shared across projects and updated as one source of truth. Claude Code
-symlinks it into the project's `.claude/skills/` tree for local reference.
+The skill content is shared across multiple projects (sophosfw, tdx,
+others) and updated as one source of truth. Keeping it out of any
+single project repo avoids divergence and the "broken symlink on
+clone" problem that comes from tracking a path-dependent symlink.
 
 ## Skill files
 

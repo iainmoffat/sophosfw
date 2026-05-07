@@ -12,3 +12,6 @@ coverage.txt
 .vscode/
 
 completions/
+
+# Local-only AI tooling artifacts (skills come from external skillshare repo)
+.claude/
