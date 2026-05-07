@@ -1,7 +1,5 @@
 # sophosfw Phase 9 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add `<rule> rule new <name>` to firewall and NAT rule cli surfaces, and extend the existing push pipeline to dispatch `<Set operation="add">` for create drafts.
 
 **Architecture:** A new `Operation` field on `draft.Draft` carries `create` or `update`. `<rule> new` writes a draft with `operation: create` and an empty diffHash; push branches on the operation field to choose `add` vs `update` envelope; on successful create, push refetches and flips the draft header to `update` mode. Diff rejects create drafts with a clear error.

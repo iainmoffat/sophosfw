@@ -1,7 +1,5 @@
 # sophosfw Phase 8 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Extend the Phase 7 pull/diff/push/delete pipeline to NATRule, validating that the draft-edit machinery generalizes to a second rule type.
 
 **Architecture:** A new `NATRuleSvc` mirrors `FirewallRuleSvc` 1:1 with three differences (XML wrapper tag, required-fields list, reference extractor). The `internal/draft/` path API gains a `tag` parameter (`"firewall"` | `"nat"`) that selects a per-tag subdirectory for drafts and snapshots; a one-time migration moves any pre-Phase-8 flat-layout files into the `firewall/` subdirectory at first cli invocation.

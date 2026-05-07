@@ -1,7 +1,5 @@
 # sophosfw Phase 11 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Mirror the `iainmoffat/tdx` GitHub Actions pattern, add LICENSE + Dependabot + README polish + shell completion bundling, and ship the result as `v0.9.1`.
 
 **Architecture:** Two GitHub Actions workflows + four small repo-level files + four `.goreleaser.yaml` extensions. Zero production code change; nothing under `internal/` or `cmd/` is touched.

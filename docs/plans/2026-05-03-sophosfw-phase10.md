@@ -1,7 +1,5 @@
 # sophosfw Phase 10 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add 6 mutating MCP tools for FirewallRule and NATRule (3 per rule type) plus modify the existing `<rule>_show` tools to always include `_diffHash`. Brings the agent-facing surface to parity with the cli.
 
 **Architecture:** Stateless MCP — agents pass rule body inline through tool args; no draft files involved. New svc methods `CreateInline`/`UpdateInline` mirror Phase 7-9's `Push`/`New` minus the draft-read step. The existing `Delete` methods are reused as-is. Mirrors the Phase 6 IPHost MCP pattern.

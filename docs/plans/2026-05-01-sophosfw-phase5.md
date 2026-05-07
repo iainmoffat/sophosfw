@@ -1,7 +1,5 @@
 # sophosfw Phase 5 Implementation Plan — Agent skill completion
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Update the canonical agent skill files at `/Users/ipm/code/ai-tooling/skillshare/skills/sophos-firewall/` to reflect the Phase 3 first-class commands and Phase 4 MCP tool surface, add forward-looking guidance for Phase 6, and expand `internal/cli/skill.go`'s skill-doctor to validate the new surface.
 
 **Architecture:** Phase 5 changes content in two places. The skill content (4 modified files + 1 new file) lives in the user's separate `ai-tooling/skillshare` repo and is NOT committed in the sophosfw repo (foundation T30 pattern). The skill-doctor source + tests live in the sophosfw repo and ARE committed there. The sophosfw-repo commits include skill-doctor changes, docs/api-coverage + docs/roadmap status updates, and the phase tag.

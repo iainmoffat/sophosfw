@@ -1,7 +1,5 @@
 # sophosfw Phase 14 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Multi-firewall fan-out: named profile groups in config, `--profile-set` flag on mutating commands + backup + drift, pre-flight + sequential apply with fail-fast, per-profile result reporting. Per-tool `profileSet` field on existing mutating MCP tools. New `auth_profile_set_list` tool (count 51 → 52). Ship as `v0.12.0`.
 
 **Architecture:** Three additions: (1) `Config.ProfileSets` map + Add/Remove/Resolve methods; (2) `svc.Run` orchestrator (parallel pre-flight, sequential apply, fail-fast); (3) wire each affected command/MCP tool through a shared `resolveTargetProfiles` helper that returns `[]string`. Single-profile path stays unchanged (fast-path bypass when `len(profiles) == 1`).

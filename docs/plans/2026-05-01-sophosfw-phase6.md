@@ -1,7 +1,5 @@
 # sophosfw Phase 6 Implementation Plan — Safe mutations (host ip + raw apply)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Ship the first mutating operations against live firewall infrastructure: 3 cli commands (`host ip create/update/delete`), 3 MCP tools (`host_ip_create/update/delete`), and a real `raw request --yes --confirm-mutating` apply path replacing the foundation's stub. The deliverable is the safety contract (intent flags, drift detection via `expectedDiffHash`, pre-flight read-only-profile rejection, append-only local audit log) — not surface coverage.
 
 **Architecture:** Two new `internal/svc/` files (`audit.go`, `diffhash.go`) hold cross-cutting machinery; the existing `internal/svc/hostip.go` and `internal/svc/raw.go` gain mutation methods; `internal/sophos/request.go` gains `BuildSetEnvelope` / `BuildRemoveEnvelope` helpers; `internal/catalog/catalog.go` gains a `Mutable bool` field; cli/MCP layers add new commands/tools that compose all of the above. The foundation's `IntegrationClient` continues to panic on any mutating envelope sent during standard `make test-int`.

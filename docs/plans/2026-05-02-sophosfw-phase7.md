@@ -1,7 +1,5 @@
 # sophosfw Phase 7 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Ship a complete pull/edit/diff/push lifecycle for FirewallRule objects on top of the existing Phase 6 mutation infrastructure (audit, diff hash, dry-run gates, catalog Mutable check).
 
 **Architecture:** A new `internal/draft/` package owns on-disk YAML draft + snapshot files (under `~/.config/sophosfw/profiles/<profile>/{drafts,snapshots}/`); `FirewallRuleSvc` (extending the existing read-only struct) gains `Pull`/`Diff`/`Push`/`Delete` methods that compose draft I/O with the Phase 6 audit + diff-hash + envelope-build pipeline; the cli adds 4 subcommands following the Phase 6 default-to-dry-run pattern.

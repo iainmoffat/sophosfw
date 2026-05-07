@@ -2,7 +2,7 @@
 //
 // Body-as-map create/update/delete for ServiceGroup objects. Mechanical
 // mirror of FQDNHostGroupSvc; see internal/svc/fqdnhostgroup.go for the
-// canonical template and docs/superpowers/plans/2026-05-03-sophosfw-phase12.md
+// canonical template and docs/plans/2026-05-03-sophosfw-phase12.md
 // for the per-type substitution table.
 package svc
 

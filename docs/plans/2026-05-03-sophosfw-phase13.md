@@ -1,7 +1,5 @@
 # sophosfw Phase 13 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add `sophosfw backup` (full firewall config dump as a YAML tree) and `sophosfw drift` (compare a snapshot to current state). Read-only; CI-friendly exit codes; agent-friendly JSON output. Ship as `v0.11.0`.
 
 **Architecture:** New `BackupSvc` with four methods (Create / List / Rotate / Drift). Reuses existing primitives (`ObjectSvc.List`, `marshalCanonicalYAML`, `DiffHash`, `internal/draft/paths.go::slug`). Per-record files in per-type subdirs under `~/.config/sophosfw/profiles/<name>/backups/<utc-timestamp>/`. CLI commands at root level (`sophosfw backup`, `sophosfw drift`). 3 new MCP tools (count 48 → 51).

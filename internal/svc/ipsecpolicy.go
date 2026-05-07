@@ -2,7 +2,7 @@
 //
 // Body-as-map create/update/delete for IPsecPolicy objects. Pure mirror
 // of the Phase 12 IPHostGroupSvc template with IPsecPolicy substitutions;
-// see docs/superpowers/plans/2026-05-03-sophosfw-phase15.md.
+// see docs/plans/2026-05-03-sophosfw-phase15.md.
 //
 // Dormant in v0.13.1 — Sophos 22.x XML API does not recognize the
 // "IPsecPolicy" tag (probe returned "Input request module is Invalid").

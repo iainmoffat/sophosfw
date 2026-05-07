@@ -1,7 +1,5 @@
 # sophosfw Foundation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Build the sophosfw Go CLI + MCP-scaffold foundation (Phases 0-2 of the sophosfw roadmap): project skeleton, profile/credential model with macOS Keychain backend, Sophos XML API client, hybrid YAML+typed-Go object catalog, generic `object`/`raw` CLI commands, zero-tool `mcp serve` scaffold, three-layer read-only safety enforcement, stable JSON envelope contract, and the agent-skill outline.
 
 **Architecture:** Layered Go project mirroring tdx — `cmd/sophosfw/main.go` wires Cobra; `internal/cli` is a thin command layer; `internal/svc` holds the only application services that both CLI and (Phase-4) MCP consume; `internal/{sophos,catalog,config,creds}` are the core libraries; `internal/{render,safety}` are sibling helpers; `internal/mcp` is a stub. Read-only enforcement is mechanical at three concentric layers (client / service / integration test).

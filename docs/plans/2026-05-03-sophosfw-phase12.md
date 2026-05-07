@@ -1,7 +1,5 @@
 # sophosfw Phase 12 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add create/update/delete coverage (CLI + MCP) for the six object types currently flagged "partial" in `docs/api-coverage.md` — IPHostGroup, FQDNHost, FQDNHostGroup, MACHost, Services, ServiceGroup. Body-as-map pattern (mirror firewall_rule/nat_rule). Ship as `v0.10.0`.
 
 **Architecture:** Body-as-map svc methods (`Create`/`Update`/`Delete`) per type; one CLI subtree per type extending the existing `host` and `service` parents; 18 new MCP tools (30 → 48 total). One generic `marshalObjectBody` helper used across firewall_rule/nat_rule (refactored) and the 6 new types. Generic `object_get` (svc + MCP) injects `_diffHash` for catalog-mutable types so update/delete callers can fetch the hash.

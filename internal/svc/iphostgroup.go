@@ -4,7 +4,7 @@
 // canonical template for the other Phase 12 per-type services
 // (FQDNHost, FQDNHostGroup, MACHost, Services, ServiceGroup); subsequent
 // types follow the same shape with the substitutions documented in
-// docs/superpowers/plans/2026-05-03-sophosfw-phase12.md.
+// docs/plans/2026-05-03-sophosfw-phase12.md.
 package svc
 
 import (

@@ -2,7 +2,7 @@
 //
 // Body-as-map create/update/delete for VPNProfile objects. Pure mirror
 // of the Phase 12 IPHostGroupSvc template with VPNProfile substitutions;
-// see docs/superpowers/plans/2026-05-03-sophosfw-phase15.md.
+// see docs/plans/2026-05-03-sophosfw-phase15.md.
 package svc
 
 import (

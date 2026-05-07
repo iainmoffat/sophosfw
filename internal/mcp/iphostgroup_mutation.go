@@ -3,7 +3,7 @@
 // `host_group_create | host_group_update | host_group_delete` MCP tools
 // over the body-as-map IPHostGroupSvc. Canonical template for the other
 // Phase 12 per-type MCP files; subsequent types substitute names per
-// the table in docs/superpowers/plans/2026-05-03-sophosfw-phase12.md.
+// the table in docs/plans/2026-05-03-sophosfw-phase12.md.
 package mcp
 
 import (

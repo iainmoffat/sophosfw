@@ -1,7 +1,5 @@
 # sophosfw Phase 15 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add read + mutating coverage for site-to-site IPsec VPN: `VPNIPsecConnection` (full draft workflow), `IPsecPolicy` (Phase 2 / body-as-map), `VPNProfile` (Phase 1 / body-as-map). 15 new MCP tools (count 52 → 67). 17 new CLI sub-commands under a new `vpn` parent. Ship as `v0.13.0`.
 
 **Architecture:** Three svc files, each mirroring an existing pattern. `VPNIPsecConnection` follows Phase 7-9 firewall_rule (draft cycle with snapshots, diff hash, body-as-map inline create/update). `IPsecPolicy` and `VPNProfile` follow Phase 12 iphostgroup (body-as-map only). Drafts at `drafts/vpn/`; snapshots at `snapshots/vpn/`. Catalog entries with `mutable: true`; column metadata best-guess (verified at T1).

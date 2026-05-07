@@ -10,10 +10,12 @@ firewall rules, and NAT rules behind explicit confirm gates.
 
 ## Status
 
-Phases 0-10 complete (foundation through MCP-native firewall + NAT rule
-mutations). The MCP server registers 30 tools; the CLI covers
-inspection, drafts, dry-run preview, and apply for the supported
-object types. See `docs/roadmap.md` and `docs/api-coverage.md` for the
+Phases 0-15 complete. The CLI covers read, draft, and mutating
+operations across IP hosts, firewall rules, NAT rules, host/service
+groups, FQDN/MAC hosts, services, and site-to-site IPsec VPN. The MCP
+server registers 62 tools mirroring the CLI surface, plus
+multi-firewall fan-out (`--profile-set`), config backup, and drift
+detection. See `docs/roadmap.md` and `docs/api-coverage.md` for the
 exact surface.
 
 ## Install
@@ -51,31 +53,47 @@ sophosfw object get IPHost --filter Name:like:LAN --json
 
 ## Safety warning
 
-This tool talks to live firewall infrastructure. The foundation phase ships
-no apply path — all mutating raw XML is preview-only. Read `docs/safety-model.md`
-before doing anything beyond inspection.
+This tool talks to live firewall infrastructure. Mutating commands gate
+on `--yes` and (where applicable) `--expected-diff-hash` for optimistic
+concurrency. Profiles can be marked `readOnly: true` for client-side
+mutation refusal. See `docs/safety-model.md` before doing anything
+beyond inspection.
 
-## Sophos API prerequisites
+## Firewall-side setup
 
-The Sophos API is **disabled by default**. To use this tool:
-1. Enable API access in the firewall web admin UI.
-2. Add the host running `sophosfw` to the API allowed-clients list.
-3. Confirm the API endpoint is reachable: `https://<host>:<admin-port>/webconsole/APIController`.
+The Sophos XML API is **disabled by default** and the user account you
+authenticate as needs explicit API permission — even if it's an admin
+in the web console. See [`docs/firewall-setup.md`](docs/firewall-setup.md)
+for the full procedure (enable API, create user, grant role permissions,
+allowed-IP list, troubleshooting `auth_failed` 534, password length
+gotchas).
 
-## MCP setup (foundation: stub only)
+## MCP setup
+
+Configure your MCP host (Claude Desktop, Claude Code, mcp-inspector)
+to spawn the sophosfw MCP server over stdio:
 
 ```json
 {
   "mcpServers": {
     "sophosfw": {
       "command": "sophosfw",
-      "args": ["mcp", "serve"]
+      "args": ["mcp", "serve", "--profile", "prod"]
     }
   }
 }
 ```
-The Phase-4 release will add the real tool surface; for now this serves
-zero tools.
+
+For Claude Code specifically, the easiest path is:
+
+```bash
+claude mcp add sophosfw -- sophosfw mcp serve --profile prod
+```
+
+The `--profile` flag sets the server's default profile. Each MCP tool
+also accepts an optional `profile` argument that overrides the
+server-default per call. After adding the server, restart your MCP
+host so the tool list reloads.
 
 ## Agent skill
 

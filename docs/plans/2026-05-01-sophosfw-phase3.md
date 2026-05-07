@@ -1,7 +1,5 @@
 # sophosfw Phase 3 Implementation Plan — First-class read-only commands
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add ergonomic, type-aware first-class CLI commands (`host ip`, `service`, `firewall rule`, `nat rule`) on top of the foundation's catalog-driven generic `object` surface, plus three new typed catalog parsers (FQDNHost, MACHost, Zone) and a reference-graph utility that powers `--with-references` queries.
 
 **Architecture:** Each typed-wrapper service in `internal/svc/` composes the foundation's `*ObjectSvc` and adds typed input/output, client-side multi-field search, derived-field enrichment, and reference-graph scanning. CLI commands in `internal/cli/` are thin cobra adapters that call into the wrapper services, render JSON envelopes (`sophosfw.v1.<name>`), and resolve `--columns` overrides with catalog defaults as fallback. No mutating envelopes anywhere — Phase 3 is read-only by design.

@@ -1,7 +1,5 @@
 # sophosfw Phase 4 Implementation Plan — MCP read-only server
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Replace the foundation MCP stub with a real stdio MCP server exposing 21 read-only tools that mirror the cli surface, returning the existing `sophosfw.v1.*` JSON envelopes as MCP tool content.
 
 **Architecture:** Each MCP tool handler is a thin adapter over an existing `svc.*Svc` method. Tools are registered per-group in `internal/mcp/<group>.go` files. Two prep refactors land first: (a) extract envelope construction into `internal/render/envelope.go` so cli and MCP share one source of truth for each `sophosfw.v1.*` schema; (b) extract `cli.ErrorKind` into `internal/svc/errors.go` so cli and MCP share the same error→kind mapping.
