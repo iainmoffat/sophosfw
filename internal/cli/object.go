@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/iainmoffat/sophosfw/internal/catalog"
 	"github.com/iainmoffat/sophosfw/internal/render"
@@ -88,11 +89,65 @@ func columnsFor(item any, columns []string) []string {
 	return row
 }
 
+// listCellBudget is the width, in characters, that a member list may occupy
+// in a table cell before the remainder is summarised as "+N more".
+const listCellBudget = 60
+
+// stringify renders one table cell.
+//
+// Group types carry list columns (HostList, ServiceList, FQDNHostList) whose
+// decoded shape is a single-key container wrapping either a scalar (one
+// member) or a slice (many) — see the decode contract in
+// internal/sophos.xmlFragmentToMap. Rendering those with %v yields a Go map
+// dump, so unwrap them to a member summary.
+//
+// A multi-member list is always prefixed with its count, and any members that
+// do not fit are reported as "+N more" rather than dropped. Both halves of
+// that matter: a bare truncated list would read as complete while hiding
+// membership, and the count is the signal an operator can check a group's
+// real size against. Use `object get` or --json for the full list.
 func stringify(v any) string {
-	if s, ok := v.(string); ok {
-		return s
+	switch t := v.(type) {
+	case string:
+		return t
+	case []any:
+		return summarizeList(t)
+	case map[string]any:
+		// Single-key container (the Sophos list shape): render the members.
+		if len(t) == 1 {
+			for _, inner := range t {
+				return stringify(inner)
+			}
+		}
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// summarizeList renders a member slice as "N members: a, b, +K more",
+// keeping whole member names within listCellBudget. At least one member is
+// always shown so the cell is never just a count.
+func summarizeList(items []any) string {
+	if len(items) == 0 {
+		return ""
+	}
+	if len(items) == 1 {
+		return stringify(items[0])
+	}
+	var shown []string
+	used := 0
+	for _, e := range items {
+		s := stringify(e)
+		if len(shown) > 0 && used+len(s)+2 > listCellBudget {
+			break
+		}
+		used += len(s) + 2
+		shown = append(shown, s)
+	}
+	out := fmt.Sprintf("%d members: %s", len(items), strings.Join(shown, ", "))
+	if rest := len(items) - len(shown); rest > 0 {
+		out += fmt.Sprintf(", +%d more", rest)
+	}
+	return out
 }
 
 func newObjectGetCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
