@@ -40,6 +40,44 @@ bytes never leave `client.Do`. Debug output is always redacted.
 **Guarantee:** Credentials never appear in any output — logs, errors, debug, tests, or
 stdout. This is verified by assertion in test coverage.
 
+## Decode fidelity: repeated elements
+
+Sophos represents group membership as repeated sibling elements:
+
+```xml
+<FQDNHostList>
+  <FQDNHost>a.example.org</FQDNHost>
+  <FQDNHost>b.example.org</FQDNHost>
+</FQDNHostList>
+```
+
+`xmlFragmentToMap` accumulates repeats into a slice. The decoded shape is
+**scalar-or-slice**: a one-member list decodes as a bare string, two or more
+decode as an array, in document order. Consumers reading a list-valued key
+must handle both. The write side (`svc.marshalObjectBody`) already emits
+`[]any` as flat repetition, so a record read from the device, edited, and
+written back round-trips exactly.
+
+This matters beyond cosmetics because group updates use **replace**
+semantics. A decoder that dropped repeats would make the ordinary
+read-modify-write flow destructive: the write body would carry only the
+members that survived the read, silently evicting the rest. It would also
+make `_diffHash` unsound (the hash would cover only part of the record, so
+`--expected-diff-hash` could pass against a substantially edited object),
+give `drift` a confidently wrong diff, cause `object usage` to under-report
+references, and cause `backup` to persist an unrestorable snapshot.
+
+**Regression tests must use fixtures with more than one member.** A
+single-member fixture passes under both a correct and a truncating decoder,
+which is how this class of bug hides. See
+`testdata/sophos/responses/fqdnhostgroup_get_multi.xml`.
+
+> **Snapshots taken before this fix are untrustworthy.** Any backup written
+> by an earlier build recorded groups truncated to a single member. Re-take
+> snapshots before relying on them for restore or drift comparison; the first
+> `drift` run against an old snapshot will report every multi-member group as
+> `modified`, which reflects the old snapshot's corruption, not device drift.
+
 ## Reference
 
 See the full specification at
