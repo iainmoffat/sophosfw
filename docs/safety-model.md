@@ -78,6 +78,45 @@ which is how this class of bug hides. See
 > `drift` run against an old snapshot will report every multi-member group as
 > `modified`, which reflects the old snapshot's corruption, not device drift.
 
+## Snapshot filenames must be injective
+
+`draft.Slug` is deliberately lossy: it lowercases, folds every run of
+non-alphanumerics to a single `-`, and trims the ends. It is therefore **not
+injective** — `*.foo.com`, `foo.com`, `foo com` and `foo/com` all reduce to
+`foo-com`. Sophos names routinely differ only in that punctuation: wildcard
+FQDN objects live alongside their bare siblings on any real device.
+
+`backup` must not let two objects share a file. It assigns filenames in two
+passes: names whose slug is unique keep the readable stem, and every member
+of a colliding set gets a short content hash appended. Disambiguating *all*
+colliders rather than just the later ones keeps the mapping independent of
+the order the device returned records in.
+
+Filenames are only a convenience — `loadSnapshotRecords` keys on the `Name`
+field stored *inside* each file, so they must be unique but need not be
+reversible or stable.
+
+Two checks back this up, and both are the kind that catch the bug from
+inside the tool:
+
+- **A filename claimed twice in one run is an error**, not an overwrite.
+  Silent overwrite is what turns "one object missing" into "a phantom
+  `added` in every future drift run".
+- **Records written must equal files on disk**, per type, or the backup
+  fails. The original bug reported `581 records` into a 578-file directory
+  and nothing compared the two.
+
+The invariant worth protecting is **`drift` against a freshly taken snapshot
+reports zero deltas**. Anything the snapshot loses surfaces there as a
+permanent false positive, and false positives train operators to skim the
+one surface that tells them what changed on the firewall.
+
+> `draft.Slug` is also used for draft paths (`DraftPath`), which have the
+> same theoretical collision. Two rules whose names differ only in
+> punctuation would share a draft file. Not addressed here: drafts are
+> user-named, created one at a time, and carry the rule name inside the
+> file.
+
 ## Reference
 
 See the full specification at
