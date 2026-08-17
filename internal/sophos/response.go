@@ -211,8 +211,16 @@ func extractEmbeddedStatus(raw []byte) (int, string, bool) {
 }
 
 // xmlFragmentToMap converts an XML element (with its outer tag) to a
-// map[string]any with child element names as keys. Lossy for attributes and
-// mixed content, which is acceptable for Sophos response shapes.
+// map[string]any with child element names as keys.
+//
+// Repeated sibling elements accumulate: the first occurrence of a key holds
+// the value directly, and any repeat promotes it to []any in document order.
+// The resulting shape is therefore scalar-or-slice — a one-member list stays
+// a scalar — which matches what the Sophos API accepts on the write side.
+// Callers reading list-valued keys must handle both.
+//
+// Still lossy for attributes and mixed content, which is acceptable for
+// Sophos response shapes.
 func xmlFragmentToMap(raw []byte) (map[string]any, error) {
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	stack := []map[string]any{}
@@ -261,7 +269,21 @@ func xmlFragmentToMap(raw []byte) (map[string]any, error) {
 				return current, nil
 			}
 			parent := stack[len(stack)-1]
-			parent[t.Name.Local] = value
+			// Repeated siblings accumulate into a slice rather than
+			// overwriting. Sophos represents group membership as repeated
+			// elements (<FQDNHostList><FQDNHost>…</FQDNHost>×N), so
+			// last-one-wins silently truncates a group to its final member —
+			// and every downstream artifact (backup, diffHash, drift, usage,
+			// and read-modify-write bodies) then agrees with the truncation.
+			if prev, exists := parent[t.Name.Local]; exists {
+				if arr, ok := prev.([]any); ok {
+					parent[t.Name.Local] = append(arr, value)
+				} else {
+					parent[t.Name.Local] = []any{prev, value}
+				}
+			} else {
+				parent[t.Name.Local] = value
+			}
 		}
 	}
 	return current, nil

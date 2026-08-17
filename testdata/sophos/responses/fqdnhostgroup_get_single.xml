@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Response APIVersion="2200.1">
+  <Login><status>Authentication Successful</status></Login>
+  <FQDNHostGroup transactionid="">
+    <Name>solo-group</Name>
+    <IPFamily>IPv4</IPFamily>
+    <FQDNHostList>
+      <FQDNHost>dingo.example.org</FQDNHost>
+    </FQDNHostList>
+  </FQDNHostGroup>
+</Response>

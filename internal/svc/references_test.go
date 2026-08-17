@@ -106,3 +106,25 @@ func TestFindReferences_ExactMatchOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got.Refs["IPHostGroup"])
 }
+
+// A host buried in the middle of a large group must still be found. Under the
+// truncating decoder only the last member of a group survived the read, so a
+// reference scan reported "no references" for every other member — which reads
+// as "safe to delete" for a host that is in fact in use.
+//
+// The group here deliberately holds several members and the target is NOT the
+// last one: a single-member fixture, or one whose target happens to be last,
+// passes under both the broken and the fixed decoder.
+func TestFindReferences_FindsMemberInMiddleOfGroup(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"IPHostGroup": {json.RawMessage(`{"Name":"big-group","HostList":{"Host":[` +
+			`"alpha","bravo","LAN-network","charlie","delta"]}}`)},
+		"FirewallRule": {},
+		"NATRule":      {},
+	}
+	svc := newRefSvc(t, body, nil)
+	got, err := FindReferences(context.Background(), svc, "home", "IPHost", "LAN-network")
+	require.NoError(t, err)
+	require.Equal(t, []string{"big-group"}, got.Refs["IPHostGroup"],
+		"a mid-list group member must be reported as referenced")
+}
