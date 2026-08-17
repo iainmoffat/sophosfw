@@ -2,6 +2,8 @@ package svc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -148,6 +150,14 @@ func (s *BackupSvc) Create(ctx context.Context, profileName string, opts BackupC
 		if err := os.MkdirAll(typeDir, 0o755); err != nil {
 			return nil, err
 		}
+
+		// Collect first, then assign filenames. Disambiguation has to see
+		// every name in the type before it can tell which slugs collide.
+		type snapshotRecord struct {
+			name string
+			body map[string]any
+		}
+		records := make([]snapshotRecord, 0, len(list.Items))
 		for _, item := range list.Items {
 			record, mErr := toMap(item)
 			if mErr != nil {
@@ -167,16 +177,50 @@ func (s *BackupSvc) Create(ctx context.Context, profileName string, opts BackupC
 			if hash, herr := DiffHash(record); herr == nil {
 				record["_diffHash"] = hash
 			}
-			slug := draft.Slug(recName)
-			yamlBytes, merr := marshalCanonicalYAML(record)
+			records = append(records, snapshotRecord{name: recName, body: record})
+		}
+
+		names := make([]string, len(records))
+		for i, r := range records {
+			names[i] = r.name
+		}
+		slugs := assignSnapshotSlugs(names)
+
+		written := map[string]string{} // slug -> object name, for collision detection
+		for i, r := range records {
+			slug := slugs[i]
+			// Last line of defence. Every silent overwrite in this
+			// directory is one object erased from the backup and one
+			// phantom "added" in every future drift run, so a filename
+			// clash must fail the run rather than be resolved by luck.
+			if prev, taken := written[slug]; taken {
+				return nil, fmt.Errorf("%w: snapshot filename %q claimed by both %q and %q in %s",
+					sophos.ErrInvalidRequest, slug+".yaml", prev, r.name, tag)
+			}
+			written[slug] = r.name
+
+			yamlBytes, merr := marshalCanonicalYAML(r.body)
 			if merr != nil {
-				return nil, fmt.Errorf("marshal %s/%s: %w", tag, recName, merr)
+				return nil, fmt.Errorf("marshal %s/%s: %w", tag, r.name, merr)
 			}
 			if err := os.WriteFile(filepath.Join(typeDir, slug+".yaml"), yamlBytes, 0o644); err != nil {
 				return nil, err
 			}
 			counts[tag]++
 			total++
+		}
+
+		// The reported count must describe what is on disk. A snapshot
+		// that claims more records than it holds is trusted and cannot
+		// restore; comparing the two is what turns that into an error at
+		// backup time instead of a phantom diff discovered days later.
+		onDisk, cErr := countSnapshotFiles(typeDir)
+		if cErr != nil {
+			return nil, cErr
+		}
+		if onDisk != counts[tag] {
+			return nil, fmt.Errorf("%w: %s snapshot wrote %d files for %d records",
+				sophos.ErrInvalidRequest, tag, onDisk, counts[tag])
 		}
 	}
 
@@ -591,6 +635,56 @@ func (s *BackupSvc) resolveSnapshotPath(profile string, opts DriftOptions) (stri
 		return "", fmt.Errorf("%w: no snapshots found for profile %q", sophos.ErrNotFound, profile)
 	}
 	return entries[0].Path, nil
+}
+
+// assignSnapshotSlugs maps object names to snapshot filename stems,
+// guaranteeing that distinct names never share a stem.
+//
+// draft.Slug is deliberately lossy — it folds every run of
+// non-alphanumerics to a single "-" and trims the ends — so it is not
+// injective: "*.foo.com", "foo.com", "foo com" and "foo/com" all reduce to
+// "foo-com". Sophos names routinely differ only in that punctuation
+// (wildcard FQDN objects live alongside their bare siblings), so left
+// unhandled one object overwrites the other and is lost from the backup.
+//
+// Names whose slug is unique keep the readable stem. Only names that
+// actually collide get a short content hash appended, and every collider
+// gets one — including the first — so the mapping does not depend on the
+// order the device returned records in. Filenames are a convenience:
+// loadSnapshotRecords keys on the Name field stored inside each file, so
+// they need only be unique, not reversible.
+func assignSnapshotSlugs(names []string) []string {
+	base := make([]string, len(names))
+	seen := map[string]int{}
+	for i, n := range names {
+		base[i] = draft.Slug(n)
+		seen[base[i]]++
+	}
+	out := make([]string, len(names))
+	for i, n := range names {
+		if seen[base[i]] == 1 {
+			out[i] = base[i]
+			continue
+		}
+		sum := sha256.Sum256([]byte(n))
+		out[i] = base[i] + "-" + hex.EncodeToString(sum[:])[:8]
+	}
+	return out
+}
+
+// countSnapshotFiles counts the .yaml record files in a snapshot type dir.
+func countSnapshotFiles(typeDir string) (int, error) {
+	entries, err := os.ReadDir(typeDir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // loadSnapshotRecords reads every <snapshotPath>/<tag>/*.yaml file into

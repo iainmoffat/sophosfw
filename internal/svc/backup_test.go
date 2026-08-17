@@ -880,3 +880,132 @@ func TestBackupSvc_Create_StubRecordsSkipped(t *testing.T) {
 	}
 	require.Equal(t, 1, yamlFiles)
 }
+
+// rawFQDNHost builds a minimal FQDNHost fragment. FQDN objects are where
+// slug collisions bite hardest, because wildcard and bare names coexist
+// routinely (*.google.com alongside google.com).
+func rawFQDNHost(name string) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(
+		`{"Name":%q,"FQDN":%q,"IPFamily":"IPv4"}`, name, strings.TrimPrefix(name, "*.")))
+}
+
+// snapshotFiles lists the .yaml basenames written for one type.
+func snapshotFiles(t *testing.T, snapshotDir, tag string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(snapshotDir, tag))
+	require.NoError(t, err)
+	var out []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".yaml") {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// A wildcard object and its bare sibling both exist on real devices and
+// must not share a snapshot file. draft.Slug folds "*." to nothing, so
+// "*.foo.example.com" and "foo.example.com" both reduce to
+// "foo-example-com" — whichever was written second silently destroyed the
+// other, and drift then reported the loser as Added on every run for ever.
+func TestBackupSvc_Create_WildcardAndBareNameDoNotCollide(t *testing.T) {
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"FQDNHost": {
+				rawFQDNHost("foo.example.com"),
+				rawFQDNHost("*.foo.example.com"),
+			},
+		},
+	}
+	bs, _ := newBackupSvc(t, cl)
+	res, err := bs.Create(context.Background(), "", BackupCreateOptions{Types: []string{"FQDNHost"}})
+	require.NoError(t, err)
+
+	files := snapshotFiles(t, res.Path, "FQDNHost")
+	require.Len(t, files, 2, "each object needs its own file, got %v", files)
+
+	// Both must round-trip back out of the snapshot, keyed by real name.
+	recs, err := loadSnapshotRecords(res.Path, "FQDNHost")
+	require.NoError(t, err)
+	require.Contains(t, recs, "foo.example.com")
+	require.Contains(t, recs, "*.foo.example.com")
+	require.Equal(t, "foo.example.com", recs["foo.example.com"]["Name"])
+	require.Equal(t, "*.foo.example.com", recs["*.foo.example.com"]["Name"])
+}
+
+// The `*` case is only the instance we happened to hit. The sanitiser
+// folds every run of non-alphanumerics to a single "-", so any names
+// differing only in punctuation or spacing collide the same way.
+func TestBackupSvc_Create_PunctuationVariantsDoNotCollide(t *testing.T) {
+	names := []string{"a b", "a-b", "a.b", "a/b", "a:b"}
+	raws := make([]json.RawMessage, len(names))
+	for i, n := range names {
+		raws[i] = rawFQDNHost(n)
+	}
+	cl := &scriptedBodyClient{bodies: map[string][]json.RawMessage{"FQDNHost": raws}}
+	bs, _ := newBackupSvc(t, cl)
+	res, err := bs.Create(context.Background(), "", BackupCreateOptions{Types: []string{"FQDNHost"}})
+	require.NoError(t, err)
+
+	require.Len(t, snapshotFiles(t, res.Path, "FQDNHost"), len(names))
+	recs, err := loadSnapshotRecords(res.Path, "FQDNHost")
+	require.NoError(t, err)
+	for _, n := range names {
+		require.Contains(t, recs, n, "object %q must survive the snapshot", n)
+	}
+}
+
+// The count in _meta.yaml must describe what is actually on disk. The
+// original bug reported 581 records against 579 files and nothing
+// compared the two — that mismatch was the tool telling on itself.
+func TestBackupSvc_Create_ReportedCountMatchesFilesWritten(t *testing.T) {
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"FQDNHost": {
+				rawFQDNHost("google.com"),
+				rawFQDNHost("*.google.com"),
+				rawFQDNHost("search.yahoo.com"),
+				rawFQDNHost("*.search.yahoo.com"),
+			},
+		},
+	}
+	bs, _ := newBackupSvc(t, cl)
+	res, err := bs.Create(context.Background(), "", BackupCreateOptions{Types: []string{"FQDNHost"}})
+	require.NoError(t, err)
+
+	require.Equal(t, 4, res.TotalRecords)
+	require.Len(t, snapshotFiles(t, res.Path, "FQDNHost"), res.TotalRecords,
+		"reported record count must equal files actually written")
+}
+
+// The strong invariant: a snapshot taken from an unchanged device must
+// diff clean against that same device. Anything the snapshot loses shows
+// up here as a phantom delta, and phantom deltas train operators to skim
+// the one surface that tells them what changed on the firewall.
+func TestBackupSvc_Drift_AgainstFreshSnapshot_ReportsZeroDeltas(t *testing.T) {
+	cl := &scriptedBodyClient{
+		bodies: map[string][]json.RawMessage{
+			"FQDNHost": {
+				rawFQDNHost("google.com"),
+				rawFQDNHost("*.google.com"),
+				rawFQDNHost("search.yahoo.com"),
+				rawFQDNHost("*.search.yahoo.com"),
+				rawFQDNHost("*.clients.l.google.com"),
+				rawFQDNHost("clients.l.google.com"),
+			},
+		},
+	}
+	bs, _ := newBackupSvc(t, cl)
+	res, err := bs.Create(context.Background(), "", BackupCreateOptions{Types: []string{"FQDNHost"}})
+	require.NoError(t, err)
+
+	drift, err := bs.Drift(context.Background(), "", DriftOptions{SnapshotPath: res.Path})
+	require.NoError(t, err)
+	require.Empty(t, drift.Changes,
+		"a freshly taken snapshot must diff clean against the same device, got %+v", drift.Changes)
+	require.Equal(t, 0, drift.Summary.Added)
+	require.Equal(t, 0, drift.Summary.Removed)
+	require.Equal(t, 0, drift.Summary.Modified)
+	require.Equal(t, 6, drift.Summary.Unchanged)
+}
