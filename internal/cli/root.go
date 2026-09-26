@@ -49,6 +49,7 @@ func NewRoot(d RootDeps) *cobra.Command {
 	root.AddCommand(newMCPCmd(d, cat))
 	root.AddCommand(newHostCmd(d, cat))
 	root.AddCommand(newServiceCmd(d, cat))
+	root.AddCommand(newScheduleCmd(d, cat))
 	root.AddCommand(newFirewallCmd(d, cat))
 	root.AddCommand(newNATCmd(d, cat))
 	root.AddCommand(newVPNCmd(d, cat))
