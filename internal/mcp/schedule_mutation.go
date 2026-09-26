@@ -27,7 +27,7 @@ type ScheduleUpdateInput struct {
 	ProfileSet             string         `json:"profileSet,omitempty" jsonschema_description:"named profile group OR comma-separated profile list; mutually exclusive with profile. When set, confirm:true authorizes mutation across ALL profiles in the set."`
 	Name                   string         `json:"name" jsonschema:"required"`
 	Body                   map[string]any `json:"body" jsonschema:"required" jsonschema_description:"the Schedule body. Required keys: Name, Type (must be Recurring), ScheduleDetails.ScheduleDetail (object or array of {Days, StartTime, StopTime}). Times are HH:MM on a 15-minute grid; StopTime may be 23:59; StartTime must be before StopTime (split periods at midnight)."`
-	ExpectedDiffHash       string         `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior object_get of Schedule; required unless ignoreExpectedDiffHash=true"`
+	ExpectedDiffHash       string         `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior schedule_show (or object_get) of the Schedule; required unless ignoreExpectedDiffHash=true"`
 	IgnoreExpectedDiffHash bool           `json:"ignoreExpectedDiffHash,omitempty" jsonschema_description:"set true to push without supplying expectedDiffHash"`
 	Confirm                bool           `json:"confirm" jsonschema:"required"`
 	DryRun                 bool           `json:"dryRun,omitempty"`
@@ -37,7 +37,7 @@ type ScheduleDeleteInput struct {
 	Profile                string `json:"profile,omitempty"`
 	ProfileSet             string `json:"profileSet,omitempty" jsonschema_description:"named profile group OR comma-separated profile list; mutually exclusive with profile. When set, confirm:true authorizes mutation across ALL profiles in the set."`
 	Name                   string `json:"name" jsonschema:"required"`
-	ExpectedDiffHash       string `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior object_get of Schedule; required unless ignoreExpectedDiffHash=true"`
+	ExpectedDiffHash       string `json:"expectedDiffHash,omitempty" jsonschema_description:"hash from a prior schedule_show (or object_get) of the Schedule; required unless ignoreExpectedDiffHash=true"`
 	IgnoreExpectedDiffHash bool   `json:"ignoreExpectedDiffHash,omitempty" jsonschema_description:"set true to delete without supplying expectedDiffHash"`
 	Confirm                bool   `json:"confirm" jsonschema:"required"`
 	DryRun                 bool   `json:"dryRun,omitempty"`
@@ -49,11 +49,11 @@ func (s *Server) registerScheduleMutations() {
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Create schedule"},
 	}, s.handleScheduleCreate)
 	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
-		Name: "schedule_update", Description: "Update an existing Schedule. Requires confirm: true AND expectedDiffHash from a prior object_get of Schedule. Use dryRun: true to preview. " + scheduleBodyDescription,
+		Name: "schedule_update", Description: "Update an existing Schedule. Requires confirm: true AND expectedDiffHash from a prior schedule_show (or object_get) of the Schedule. Use dryRun: true to preview. " + scheduleBodyDescription,
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, Title: "Update schedule"},
 	}, s.handleScheduleUpdate)
 	sdkmcp.AddTool(s.impl, &sdkmcp.Tool{
-		Name: "schedule_delete", Description: "Delete a Schedule by name. Requires confirm: true AND expectedDiffHash from a prior object_get of Schedule. Refused while any firewall rule references the schedule, or if the reference scan cannot complete.",
+		Name: "schedule_delete", Description: "Delete a Schedule by name. Requires confirm: true AND expectedDiffHash from a prior schedule_show (or object_get) of the Schedule. Refused while any firewall rule references the schedule, or if the reference scan cannot complete.",
 		Annotations: &sdkmcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: ptrBool(true), Title: "Delete schedule"},
 	}, s.handleScheduleDelete)
 }
