@@ -24,7 +24,8 @@ Format: contract-grade
 - **(pin)** Every human-readable period uses ASCII hyphen-minus (`Sunday 19:45-23:59`), never an en dash.
 - Audit operation names: `schedule_create`, `schedule_update`, `schedule_delete`. ObjectType: `Schedule`.
 - JSON envelope schemas follow `sophosfw.v1.<name>`.
-- `make test` (`go test -race ./...`) and `make vet` must be green at the end of every task. Run `make lint` if golangci-lint is installed.
+- `make test` (`go test -race ./...`) and `make vet` must be green at the end of every task. Run `make lint` if golangci-lint is installed. It must report no finding in any file the task touched. The existing `internal/svc/object.go:119` govet finding (`reflect.Ptr` should be inlined) is out of scope; do not fix it.
+- TDD: run the Step 2 verify-red command and see the named test fail before implementing. Say so in the report.
 - Commit only product files. Never `git add -f` an ignored path. Commit subjects use the repo style (`feat(svc): …`, `fix(sophos): …`, `docs: …`), and every body ends with `Refs #12`.
 
 ---
