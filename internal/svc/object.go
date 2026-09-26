@@ -63,6 +63,10 @@ func (s *ObjectSvc) clientFor(profileName string) (Client, *catalog.Catalog, str
 }
 
 // List returns all records of the given XML tag, optionally filtered.
+// It filters SFOS empty-result stubs, including the observed testvm record
+// {"Status":"No. of records Zero."}. For map records, a missing or empty
+// Name alone does not make a stub: Status is ignored, and every other field
+// must be empty (recursively for maps and slices).
 func (s *ObjectSvc) List(ctx context.Context, profileName, tagOrAlias string, filter *sophos.FilterClause) (*ObjectList, error) {
 	cl, cat, name, err := s.clientFor(profileName)
 	if err != nil {
@@ -93,9 +97,8 @@ func (s *ObjectSvc) List(ctx context.Context, profileName, tagOrAlias string, fi
 		if err != nil {
 			return nil, err
 		}
-		// Sophos sometimes returns a stub record (Name="" with all
-		// fields blank) when the result set is empty. Drop it so
-		// callers see a real Count.
+		// Sophos sometimes returns a stub record when the result set is
+		// empty. Drop it so callers see a real Count.
 		if isEmptyStubRecord(v) {
 			continue
 		}
@@ -105,15 +108,25 @@ func (s *ObjectSvc) List(ctx context.Context, profileName, tagOrAlias string, fi
 	return out, nil
 }
 
-// isEmptyStubRecord returns true if v is a record whose Name field is
-// empty. Works for both typed structs (via reflection) and untyped
-// map[string]any values. Records without a Name field are never
-// considered stubs.
+// isEmptyStubRecord identifies SFOS empty-result stubs. For map records,
+// the Name must not be a non-empty string, and every field other than Name
+// and Status must be empty (recursively for maps and slices). The typed
+// struct behavior remains based on an empty Name field.
 func isEmptyStubRecord(v any) bool {
 	switch x := v.(type) {
 	case map[string]any:
-		s, ok := x["Name"].(string)
-		return ok && s == ""
+		if name, ok := x["Name"].(string); ok && name != "" {
+			return false
+		}
+		for key, value := range x {
+			if key == "Name" || key == "Status" {
+				continue
+			}
+			if !isEmptyStubValue(value) {
+				return false
+			}
+		}
+		return true
 	default:
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Ptr {
@@ -127,6 +140,31 @@ func isEmptyStubRecord(v any) bool {
 			return false
 		}
 		return f.String() == ""
+	}
+}
+
+func isEmptyStubValue(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case map[string]any:
+		for _, value := range x {
+			if !isEmptyStubValue(value) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		for _, value := range x {
+			if !isEmptyStubValue(value) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
 	}
 }
 
