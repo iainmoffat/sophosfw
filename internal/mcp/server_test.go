@@ -51,8 +51,8 @@ func TestServer_RegistersAllTools(t *testing.T) {
 
 	result, err := cs.ListTools(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, result.Tools, 62,
-		"expected 62 tools, got %d", len(result.Tools))
+	require.Len(t, result.Tools, 67,
+		"expected 67 tools, got %d", len(result.Tools))
 
 	names := make([]string, len(result.Tools))
 	for i, tool := range result.Tools {
@@ -72,6 +72,7 @@ func TestServer_RegistersAllTools(t *testing.T) {
 		"service_list", "service_show", "service_search", "service_usage",
 		"service_create", "service_update", "service_delete",
 		"service_group_create", "service_group_update", "service_group_delete",
+		"schedule_list", "schedule_show", "schedule_create", "schedule_update", "schedule_delete",
 		"firewall_rule_list", "firewall_rule_show",
 		"firewall_rule_create", "firewall_rule_update", "firewall_rule_delete",
 		"nat_rule_list", "nat_rule_show",
