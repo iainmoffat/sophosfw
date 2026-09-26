@@ -48,3 +48,13 @@ func TestLoadBody_Garbage(t *testing.T) {
 	_, err := LoadBody("not json or yaml: : :")
 	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
 }
+
+func TestLoadBody_RejectsNonObjectValues(t *testing.T) {
+	for _, input := range []string{"null", "[]", "42"} {
+		t.Run(input, func(t *testing.T) {
+			_, err := LoadBody(input)
+			require.Error(t, err)
+			require.ErrorIs(t, err, sophos.ErrInvalidRequest)
+		})
+	}
+}
