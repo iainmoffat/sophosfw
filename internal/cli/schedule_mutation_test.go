@@ -220,3 +220,23 @@ func TestScheduleShowTextReportsReferenceScanErrorAndKeepsRecord(t *testing.T) {
 	require.Contains(t, out.String(), "Referenced by FirewallRule: none\n")
 	require.Contains(t, out.String(), "Reference scan errors: generic: firewall rule query denied\n")
 }
+
+func TestScheduleShowTextReportsSkippedReferenceRecords(t *testing.T) {
+	record := map[string]any{"Name": "Night", "Type": "Recurring"}
+	d, _ := newRootForTest(t)
+	require.NoError(t, (&svc.ProfileSvc{Config: d.Config, Creds: d.Creds, BaseDir: d.BaseDir}).Add("home", "https://x:4444", false))
+	require.NoError(t, d.Creds.Save("home", creds.Credentials{Username: "u", Password: "p"}))
+	d.NewClient = func(config.Profile, creds.Credentials) svc.Client {
+		// A matching rule with no Name: the delete guard refuses on it, so
+		// the text view must not read as a clean "none".
+		return fakeScheduleShowClient{schedule: record, rule: map[string]any{"Name": "", "NetworkPolicy": map[string]any{"Schedule": "Night"}}}
+	}
+	root := NewRoot(*d)
+	out := &bytes.Buffer{}
+	root.SetOut(out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"schedule", "show", "Night", "--with-references"})
+	require.NoError(t, root.Execute())
+	require.Contains(t, out.String(), "Referenced by FirewallRule: none\n")
+	require.Contains(t, out.String(), "Reference scan incomplete: 1 FirewallRule records could not be examined; delete will be refused\n")
+}
