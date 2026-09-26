@@ -65,6 +65,7 @@ Format: contract-grade
 - Create: `internal/catalog/schedule.go`
 - Create: `internal/catalog/schedule_test.go`
 - Create: `internal/catalog/testdata/schedule_single.json`, `internal/catalog/testdata/schedule_multi.json`, `internal/catalog/testdata/schedule_onetime_nodetail.json`
+- Modify: `internal/testutil/integration_test.go` (add `TestIntegration_ScheduleParserNormalizesLive`; build tag `integration`, read-only through `IntegrationClient`)
 - Supersedes: nothing
 
 **Interfaces:**
@@ -126,11 +127,12 @@ Fixtures, captured from the testvm read shape. `schedule_single.json`:
 - The OneTime fixture's `StartDate` and `EndDate` pass through. Mutation: drop unknown keys by decoding into a struct, so the equality assert fails.
 - Invalid JSON (`{`) returns an error. Mutation: return `map[string]any{}` and nil on a decode error, so `require.Error` fails.
 - `NewDefault()` resolves `Schedule` and `schedule` to an entry with `Mutable == true`, and `Parse("Schedule", single fixture)` yields the array shape. Mutation: omit the `RegisterParser("schedule", …)` line, so Parse returns an error or an unnormalized shape.
+- Live read (integration, **not run by the executor**; the controller runs it in smoke step 9): `TestIntegration_ScheduleParserNormalizesLive` Gets `Schedule` through `newClient(t)`, parses every record with `cat.Parse("Schedule", raw)`, and asserts at least one record, and that each record with a non-nil `ScheduleDetails.ScheduleDetail` holds a `[]any`. Mutation: omit the `RegisterParser("schedule", …)` line, so single-period built-ins come back as objects and the assert fails.
 
 - [ ] **Step 1:** Add the fixtures and write the tests.
 - [ ] **Step 2:** Run `go test ./internal/catalog/ -run Schedule -v`. Expected: FAILS on the undefined `ScheduleParser`.
 - [ ] **Step 3:** Add the YAML entry, `schedule.go`, and the register line.
-- [ ] **Step 4:** Run `go test ./internal/catalog/ -v`, then `make test`. Expected: PASS. The existing `TestIntegration_CatalogTagsAllRoundTrip` picks up the new tag automatically; do not run integration tests.
+- [ ] **Step 4:** Run `go test ./internal/catalog/ -v`, then `make test`. Also run `go vet -tags integration ./internal/testutil/` so the new integration test compiles. Expected: PASS. Do not run integration tests: they need live credentials, and the controller runs them.
 - [ ] **Step 5:** Commit `feat(catalog): add Schedule entry and typed parser`.
 
 ---
