@@ -46,15 +46,28 @@ func newScheduleListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			_, err = cmd.OutOrStdout().Write(b)
 			return err
 		}
+		columns := resolveColumns(cmd, []string{"Name", "Type", "Periods"})
+		headers := make([]string, len(columns))
+		for i, column := range columns {
+			headers[i] = strings.ToUpper(column)
+		}
 		rows := make([][]string, 0, len(out.Items))
 		for _, item := range out.Items {
 			m, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			rows = append(rows, []string{stringField(m, "Name"), stringField(m, "Type"), schedulePeriodsCell(m)})
+			row := make([]string, len(columns))
+			for i, column := range columns {
+				if column == "Periods" {
+					row[i] = schedulePeriodsCell(m)
+				} else if value, ok := m[column]; ok {
+					row[i] = stringify(value)
+				}
+			}
+			rows = append(rows, row)
 		}
-		return render.WriteTable(cmd.OutOrStdout(), []string{"NAME", "TYPE", "PERIODS"}, rows)
+		return render.WriteTable(cmd.OutOrStdout(), headers, rows)
 	}}
 	c.Flags().StringVar(&filterStr, "filter", "", "Field:Criteria:Value")
 	c.Flags().String("columns", "", "comma-separated column override")
@@ -63,7 +76,7 @@ func newScheduleListCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 
 func newScheduleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 	var withRefs bool
-	return &cobra.Command{Use: "show <name>", Short: "Show one schedule", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	c := &cobra.Command{Use: "show <name>", Short: "Show one schedule", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		profile, _ := cmd.Flags().GetString("profile")
 		out, err := scheduleSvc(d, cat).Show(cmd.Context(), profile, args[0], withRefs)
 		if err != nil {
@@ -108,6 +121,8 @@ func newScheduleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 		}
 		return nil
 	}}
+	c.Flags().BoolVar(&withRefs, "with-references", false, "scan firewall rules for references to this schedule")
+	return c
 }
 
 func schedulePeriodsCell(record map[string]any) string {
