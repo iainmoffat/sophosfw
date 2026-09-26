@@ -127,6 +127,10 @@ func stringify(v any) string {
 // keeping whole member names within listCellBudget. At least one member is
 // always shown so the cell is never just a count.
 func summarizeList(items []any) string {
+	return summarizeCell(items, "members")
+}
+
+func summarizeCell(items []any, noun string) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -143,7 +147,7 @@ func summarizeList(items []any) string {
 		used += len(s) + 2
 		shown = append(shown, s)
 	}
-	out := fmt.Sprintf("%d members: %s", len(items), strings.Join(shown, ", "))
+	out := fmt.Sprintf("%d %s: %s", len(items), noun, strings.Join(shown, ", "))
 	if rest := len(items) - len(shown); rest > 0 {
 		out += fmt.Sprintf(", +%d more", rest)
 	}
