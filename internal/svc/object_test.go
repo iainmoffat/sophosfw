@@ -90,6 +90,62 @@ func TestObjectSvc_List_FiltersEmptyStub(t *testing.T) {
 	require.Equal(t, 0, out.Count)
 }
 
+func TestObjectSvc_List_FiltersStatusOnlyEmptyResultStub(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"FirewallRule": {json.RawMessage(`{"Status":"No. of records Zero."}`)},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.List(context.Background(), "home", "FirewallRule", nil)
+	require.NoError(t, err)
+	require.Empty(t, out.Items)
+	require.Zero(t, out.Count)
+}
+
+func TestObjectSvc_List_FiltersEmptyNameAndDescriptionStub(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"FirewallRule": {json.RawMessage(`{"Name":"","Description":""}`)},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.List(context.Background(), "home", "FirewallRule", nil)
+	require.NoError(t, err)
+	require.Empty(t, out.Items)
+	require.Zero(t, out.Count)
+}
+
+func TestObjectSvc_List_KeepsEmptyNameRecordWithData(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"FirewallRule": {json.RawMessage(`{"Name":"","Schedule":"NightShift"}`)},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.List(context.Background(), "home", "FirewallRule", nil)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	require.Equal(t, 1, out.Count)
+}
+
+func TestObjectSvc_List_KeepsNamelessRecordWithData(t *testing.T) {
+	resp := &sophos.Response{
+		LoginOK: true,
+		Body: map[string][]json.RawMessage{
+			"FirewallRule": {json.RawMessage(`{"Schedule":"NightShift"}`)},
+		},
+	}
+	s := newObjectSvc(t, &cannedClient{resp: resp})
+	out, err := s.List(context.Background(), "home", "FirewallRule", nil)
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	require.Equal(t, 1, out.Count)
+}
+
 func TestObjectSvc_List_FiltersStubAmongRealRecords(t *testing.T) {
 	resp := &sophos.Response{
 		LoginOK: true,

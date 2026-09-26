@@ -128,3 +128,90 @@ func TestFindReferences_FindsMemberInMiddleOfGroup(t *testing.T) {
 	require.Equal(t, []string{"big-group"}, got.Refs["IPHostGroup"],
 		"a mid-list group member must be reported as referenced")
 }
+
+func TestFindReferences_ScheduleUsesKeyScopedMatching(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"FirewallRule": {
+			json.RawMessage(`{"Name":"scheduled","NetworkPolicy":{"Schedule":"NightShift"}}`),
+			json.RawMessage(`{"Name":"description-collision","Description":"NightShift","Schedule":"Other"}`),
+			json.RawMessage(`{"Name":"array-value","Schedule":["NightShift"]}`),
+		},
+	}
+	svc := newRefSvc(t, body, nil)
+
+	got, err := FindReferences(context.Background(), svc, "home", "Schedule", "NightShift")
+	require.NoError(t, err)
+	require.Equal(t, []string{"scheduled"}, got.Refs["FirewallRule"])
+
+	got, err = FindReferences(context.Background(), svc, "home", "IPHost", "NightShift")
+	require.NoError(t, err)
+	require.Contains(t, got.Refs["FirewallRule"], "description-collision",
+		"other primaries retain any-leaf matching")
+}
+
+func TestFindReferences_SkippedMatchingNamelessRecord(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"FirewallRule": {
+			json.RawMessage(`{"Schedule":"NightShift"}`),
+			json.RawMessage(`{"Description":"NightShift"}`),
+		},
+	}
+	svc := newRefSvc(t, body, nil)
+
+	got, err := FindReferences(context.Background(), svc, "home", "Schedule", "NightShift")
+	require.NoError(t, err)
+	require.Empty(t, got.Refs["FirewallRule"])
+	require.Equal(t, map[string]int{"FirewallRule": 1}, skippedCounts(t, got))
+}
+
+func TestFindReferences_SkippedMatchingEmptyNameRecord(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"FirewallRule": {
+			json.RawMessage(`{"Name":"","Schedule":"NightShift"}`),
+		},
+	}
+	svc := newRefSvc(t, body, nil)
+
+	got, err := FindReferences(context.Background(), svc, "home", "Schedule", "NightShift")
+	require.NoError(t, err)
+	require.Empty(t, got.Refs["FirewallRule"])
+	require.Equal(t, map[string]int{"FirewallRule": 1}, skippedCounts(t, got))
+}
+
+func TestFindReferences_NonmatchingNamelessRecordIsNotSkipped(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"FirewallRule": {json.RawMessage(`{"Schedule":"Other"}`)},
+	}
+	svc := newRefSvc(t, body, nil)
+
+	got, err := FindReferences(context.Background(), svc, "home", "Schedule", "NightShift")
+	require.NoError(t, err)
+	require.Nil(t, skippedCounts(t, got))
+}
+
+func TestFindReferences_ReferrerListErrorKeepsEmptyRefsAndError(t *testing.T) {
+	svc := newRefSvc(t, nil, map[string]error{"FirewallRule": sophos.ErrPermissionDenied})
+
+	got, err := FindReferences(context.Background(), svc, "home", "Schedule", "NightShift")
+	require.NoError(t, err)
+	require.Equal(t, []string{}, got.Refs["FirewallRule"])
+	require.Contains(t, got.Errors["FirewallRule"], "permission")
+}
+
+func TestRecordContainsUnderKey_DoesNotMatchArrayValue(t *testing.T) {
+	var record map[string]any
+	require.NoError(t, json.Unmarshal(json.RawMessage(`{"Schedule":["X"]}`), &record))
+
+	require.False(t, recordContainsUnderKey(record, "Schedule", "X"))
+}
+
+func skippedCounts(t *testing.T, refs *References) map[string]int {
+	t.Helper()
+	b, err := json.Marshal(refs)
+	require.NoError(t, err)
+	var rendered struct {
+		Skipped map[string]int `json:"skipped"`
+	}
+	require.NoError(t, json.Unmarshal(b, &rendered))
+	return rendered.Skipped
+}
