@@ -3,6 +3,7 @@ package svc
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"os"
 	"path/filepath"
@@ -24,9 +25,11 @@ type fakeScheduleClient struct {
 	scheduleGets           int
 	tags                   []string
 	sent                   [][]byte
+	calls                  int
 }
 
 func (f *fakeScheduleClient) Do(_ context.Context, env sophos.Envelope) (*sophos.Response, error) {
+	f.calls++
 	resp := &sophos.Response{LoginOK: true, Body: map[string][]json.RawMessage{}}
 	for _, operation := range env.Operations {
 		get, ok := operation.(sophos.GetOp)
@@ -58,6 +61,7 @@ func (f *fakeScheduleClient) Do(_ context.Context, env sophos.Envelope) (*sophos
 }
 
 func (f *fakeScheduleClient) DoRaw(_ context.Context, raw []byte) (*sophos.Response, error) {
+	f.calls++
 	f.sent = append(f.sent, append([]byte(nil), raw...))
 	return &sophos.Response{LoginOK: true}, nil
 }
@@ -82,10 +86,15 @@ func scheduleSvcBody(name string) map[string]any {
 
 func TestScheduleSvc_CreateDryRunAndNormalizesDetails(t *testing.T) {
 	s, fc, _ := newScheduleSvc(t, nil)
-	out, err := s.Create(context.Background(), "home", "Night&Shift", scheduleSvcBody("Night&Shift"), true)
+	single := scheduleSvcBody("Night&Shift")
+	single["_diffHash"] = "must-not-be-marshaled"
+	out, err := s.Create(context.Background(), "home", "Night&Shift", single, true)
 	require.NoError(t, err)
 	require.NotNil(t, out.Preview)
 	require.Equal(t, 1, strings.Count(out.Preview.RedactedXML, "<ScheduleDetail>"))
+	require.Equal(t, 1, scheduleDetailChildCount(t, out.Preview.RedactedXML))
+	require.NotContains(t, out.Preview.RedactedXML, "<ScheduleDetail><ScheduleDetail>")
+	require.NotContains(t, out.Preview.RedactedXML, "must-not-be-marshaled", "the normalized body strips _diffHash before marshalling")
 	require.Empty(t, fc.sent)
 
 	body := scheduleSvcBody("Night&Shift")
@@ -95,7 +104,44 @@ func TestScheduleSvc_CreateDryRunAndNormalizesDetails(t *testing.T) {
 	}}
 	_, err = s.Create(context.Background(), "home", "Night&Shift", body, true)
 	require.NoError(t, err)
-	require.Equal(t, 2, strings.Count(fcLastPreview(t, s, body), "<ScheduleDetail>"))
+	previewXML := fcLastPreview(t, s, body)
+	require.Equal(t, 2, strings.Count(previewXML, "<ScheduleDetail>"))
+	require.Equal(t, 2, scheduleDetailChildCount(t, previewXML), "periods must be siblings directly under ScheduleDetails")
+}
+
+// scheduleDetailChildCount counts only direct ScheduleDetail elements under
+// ScheduleDetails, so a nested ScheduleDetail shape cannot satisfy the XML contract.
+func scheduleDetailChildCount(t *testing.T, input string) int {
+	t.Helper()
+	decoder := xml.NewDecoder(strings.NewReader(input))
+	inDetails := false
+	depth := 0
+	count := 0
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		switch value := token.(type) {
+		case xml.StartElement:
+			if inDetails {
+				if depth == 0 && value.Name.Local == "ScheduleDetail" {
+					count++
+				}
+				depth++
+			} else if value.Name.Local == "ScheduleDetails" {
+				inDetails = true
+			}
+		case xml.EndElement:
+			if inDetails {
+				if depth == 0 && value.Name.Local == "ScheduleDetails" {
+					return count
+				}
+				depth--
+			}
+		}
+	}
+	return count
 }
 
 func fcLastPreview(t *testing.T, s *ScheduleSvc, body map[string]any) string {
@@ -113,6 +159,7 @@ func TestScheduleSvc_CreateValidationBeforeClientAndAudit(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, sophos.ErrInvalidRequest))
 	require.Empty(t, fc.tags)
+	require.Zero(t, fc.calls, "invalid schedule validation must happen before any client call")
 	audit, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
 	require.NoError(t, err)
 	require.Contains(t, string(audit), `"result":"error:invalid_request"`)
