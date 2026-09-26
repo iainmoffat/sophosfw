@@ -77,7 +77,9 @@ for each day. A single `Week Days 19:45–06:00` period is not accepted.
 **Open for sys_admin's boundary measurement** (to be posted on #12): whether
 `StopTime` is inclusive, and so whether the `23:59` period leaves the minute
 23:59–00:00 uncovered, is being measured on sophos01. The spec does not depend
-on it. The docs will record the measured answer and the recommended split idiom.
+on it. If the measurement has not landed by release, the docs give the `23:59`
+split idiom with an explicit caveat: "whether 23:59–00:00 is covered is
+unverified". The docs are updated once the measurement is posted.
 
 ## Architecture
 
@@ -101,9 +103,12 @@ scanning goes through `schedule show --with-references`, described below.
 
 ### 2. Typed parser `schedule` (`internal/catalog/schedule.go`)
 
-The parser normalizes `ScheduleDetails.ScheduleDetail` to **always be an
-array** and leaves every other field untouched, so OneTime fields pass through
-unchanged. `ObjectSvc.Get` computes `_diffHash` over the parser's output, which
+When `ScheduleDetails.ScheduleDetail` is present as a single object, the parser
+wraps it in a one-element array. When it is already an array, the parser
+leaves it as is. When `ScheduleDetails`, or `ScheduleDetail` inside it, is
+absent or null (possible for OneTime), the parser leaves that shape untouched
+and does not add an empty array. It never rejects a record: read paths must
+show whatever SFOS stores. Every other field passes through untouched. `ObjectSvc.Get` computes `_diffHash` over the parser's output, which
 means every read path hashes the normalized shape: `object get`, `schedule
 show`, and the mutate pipeline's live fetch, which must call
 `ObjectSvc.Get`. That consistency is required so a hash from `object get` works
@@ -116,23 +121,33 @@ fields survive the round trip. It is registered in `register.go`.
 
 A pure function, `validateScheduleBody(body map[string]any) (map[string]any,
 error)`. It returns the normalized body, with `ScheduleDetail` always an array,
-or an `ErrInvalidRequest` naming the offending period by its index:
+or an `ErrInvalidRequest` naming the offending period by its 1-based index
+("period 2: …"):
 
-- `Name` is required and non-empty. `Type` is required and must equal
-  `Recurring`; any other value is rejected with "only Recurring schedules are
-  writable".
-- `ScheduleDetails.ScheduleDetail` is required and may be given as an object
-  or an array. It must contain at least one period.
+- `Name` must be a string that is non-empty after trimming whitespace. `Type`
+  must be the string `Recurring`; any other value, including a missing one, is
+  rejected with "only Recurring schedules are writable".
+- `ScheduleDetails` must be an object. Its `ScheduleDetail` must be either an
+  object or a non-empty array of objects. A null, an empty array, or any
+  non-object element is rejected.
+- Every period must carry `Days`, `StartTime` and `StopTime` as strings. A key
+  that is missing or not a string is rejected.
+- Unknown keys, top-level or per-period, pass through to SFOS unvalidated, the
+  same as the group commands. `_diffHash` is stripped. Only the fields listed
+  here are validated.
 - `Days` must be in {Sunday … Saturday, `Week Days`, `Weekdays Including
   Saturday`, `All Days of week`}, compared case-sensitively. When a value
   matches case-insensitively, the error suggests the correct spelling.
 - `StartTime` and `StopTime` must match `^([01]\d|2[0-3]):(00|15|30|45)$`.
   `StopTime` may also be exactly `23:59`.
-- `StartTime` must be strictly earlier than `StopTime`. When it is not, the
-  error reads: "period N crosses midnight or is empty; SFOS rejects this. Split
-  it into <Days> <Start>–23:59 and <next day> 00:00–<Stop>". For an aggregate
-  `Days`, the error says to list the individual days instead of naming a next
-  day.
+- `StartTime` must be strictly earlier than `StopTime`. The error text depends
+  on the case:
+  - Equal times: "period N is empty (StartTime equals StopTime)".
+  - `StopTime` earlier than `StartTime`: "period N crosses midnight; SFOS
+    rejects this. Split it into <Days> <Start>–23:59 and <next day>
+    00:00–<Stop>". When `StopTime` is `00:00`, only the first half is
+    suggested. When `Days` is an aggregate, the message says to list the
+    individual days instead of naming a next day.
 - `Description` is optional and passed through.
 - Duplicate periods are not checked. SFOS accepts them, and deduplicating is
   not the tool's job.
@@ -145,7 +160,12 @@ any envelope is built. Dry-run validates too.
 Create, update and delete mirror `ServiceGroupSvc.mutate` exactly: profile
 lookup, audit skeleton, read-only check, catalog `Mutable` check, validation,
 live fetch plus hash gate, envelope build, dry-run short-circuit, apply, then a
-refetch that produces the new hash. The audit ops are
+**best-effort** refetch. As in the template, a failed refetch after a
+successful apply still reports success and leaves `NewDiffHash` empty. Also as
+in the template, the hash gate sits before the dry-run short-circuit, so a
+dry-run `update`/`delete` needs `--expected-diff-hash` or
+`--ignore-diff-hash` too (`servicegroup.go:148-166`). The CLI help text says
+so accurately, not "required for --yes". The audit ops are
 `schedule_{create,update,delete}` with ObjectType `Schedule`. The envelope
 marshals the normalized array as repeated `<ScheduleDetail>` elements; probe
 p3 confirms SFOS accepts that shape.
@@ -154,33 +174,53 @@ List and show delegate to `ObjectSvc.List` and `ObjectSvc.Get`.
 
 **Delete reference guard.** This is new behavior; no current delete path
 checks references. Before building the `Remove`, including on dry-run, the
-service scans FirewallRule records for the schedule's name, **matching only
-values under a key named `Schedule`**. Unlike generic `recordContains`, this
-matcher cannot false-positive on a schedule whose name happens to equal some
-other field value. Outcomes:
+service scans FirewallRule records for the schedule's name. It matches **any
+key named `Schedule`, at any depth, whose value is a string exactly equal to
+the name**; in practice that means `NetworkPolicy.Schedule` and
+`UserPolicy.Schedule`. Unlike generic `recordContains`, this matcher cannot
+false-positive on a schedule whose name happens to equal some other field
+value. Outcomes:
 
-- references found: refuse with `ErrInvalidRequest` ("schedule %q is
-  referenced by firewall rules: …") and list the rules in the error details.
+- References found: refuse with `ErrInvalidRequest`. The message is
+  "schedule %q is referenced by firewall rules: A, B", naming the rules
+  in the message text itself. Error `details` are never populated today
+  (`cli/root.go:90` passes nil), and this feature does not add that plumbing.
   There is no override flag.
-- the scan itself fails (auth, network): refuse. This fails closed, and the
-  error says the scan could not complete.
-- no references: proceed.
+- The scan did not fully complete: refuse, failing closed, with a message
+  saying the reference scan could not complete. This covers a FirewallRule
+  entry in `References.Errors`, as well as a FirewallRule record that could not
+  be decoded or has no `Name`. The guard therefore needs `FindReferences` to
+  report skipped records instead of silently dropping them.
+- No references: proceed.
 
-The dry-run preview carries `referencedBy: []`.
+The guard runs on dry-run too, and a dry-run delete that would be refused
+returns the same error, so the preview shape gains no new field. The guarantee
+covers only what the scan saw: a rule that gains a reference between the scan
+and the `Remove` is not caught. The docs describe it that way ("refuses
+when a reference is found at delete time"). Whether SFOS itself refuses a
+referenced delete was not probed.
 
 `referenceTargets` gains `"Schedule": {"FirewallRule"}`, paired with a
 per-primary-tag key filter, so `FindReferences` stays the single scanner.
-Other primaries keep their current any-leaf matching.
+Other primaries keep their current any-leaf matching and their current handling
+of skipped records.
 
 ### 5. CLI (`internal/cli/schedule.go`, `schedule_mutation.go`)
 
 A top-level `schedule` group:
 
-- `list [--filter …]`: table columns Name, Type, and Periods. Periods is a
-  summary such as `Sunday 19:45–23:59; Monday 00:00–06:00`, following the group
-  member-list summarizing added in 6f23bec.
-- `show <name> [--with-references]`: the record including `_diffHash`, plus
-  `referencedBy` when the flag is set.
+- `list [--filter …]`: table columns Name, Type, and Periods. Periods renders
+  each period as `<Days> <Start>–<Stop>`, joined and truncated with the same
+  count/truncation convention as the group member-list summaries (6f23bec). A
+  record with no `ScheduleDetail`, such as OneTime, shows `-`. JSON output is
+  the unmodified record.
+- `show <name> [--with-references]`: the record, including `_diffHash`. With
+  the flag, a sibling `references` field is added in the `References` shape
+  that `host ip usage --with-references` uses: per-referrer names plus
+  per-referrer errors. It sits **outside** the record, is never hashed, and so
+  never leaks into a copied body. A failed scan in `show` still returns the
+  record, with the partial references and errors. Only the delete guard fails
+  closed.
 - `create <name> --body … [--yes]`.
 - `update <name> --body … [--expected-diff-hash H | --ignore-diff-hash]
   [--yes]`.
@@ -189,7 +229,8 @@ A top-level `schedule` group:
 Flags, help text and the dry-run default are copied from
 `servicegroup_mutation.go`. `<name>` must equal `body.Name` when both are
 given, and fills it in when it is absent, the same as
-`servicegroup_mutation.go:57`. There are no renames: SFOS keys Schedule by
+`servicegroup_mutation.go:57`. A `body.Name` that is present but is not a
+string, or is blank, is rejected rather than overwritten. There are no renames: SFOS keys Schedule by
 `Name`, so a rename is delete plus create. `update` is a full replacement of
 the record: fields left out of the body are not preserved. The intended
 workflow is `show` → edit → `update --expected-diff-hash`.
@@ -219,7 +260,7 @@ updated.
 |---|---|
 | Validation failure (any rule in §3) | `invalid_request`, before any network call |
 | Read-only profile | `read_only_violation` |
-| Delete of a schedule a rule still references, or a failed reference scan | `invalid_request` with details `{referencedBy}` / `{scanError}` |
+| Delete of a schedule a rule still references, or an incomplete reference scan | `invalid_request`; rule names or scan failure in the message text |
 | Hash mismatch | `diff_hash_mismatch` (existing) |
 | SFOS 599 (prod account: "Not having privilege…") | **Currently `server_error`**: `statusToError` maps only 535 to `ErrPermissionDenied`, and 599 falls outside the 500–530 invalid-request band. Proposed fold-in: map 599 → `ErrPermissionDenied`, with a status test. This affects every mutating command, not only Schedule (owner decision; see open questions). |
 | Any residual SFOS 501 | `invalid_request` carrying the SFOS message (existing mapping) |
@@ -230,8 +271,12 @@ updated.
   single-object and one array. Assert the output is an array and that other
   fields pass through untouched. Include an OneTime-shaped record.
 - **Validation:** a table test built from the probe matrix above. Every 501
-  case must be rejected client-side, and every ok case must pass. This is the
-  contract that keeps the client and SFOS aligned.
+  case must be rejected client-side, and every ok case must pass, with one
+  deliberate exception. Lowercase `sunday` is accepted by SFOS but rejected by
+  the client, per the owner's closed, case-sensitive Days decision, and the
+  error suggests `Sunday`. The table also covers the structural cases from §3:
+  null or empty detail, non-object element, and missing or non-string keys.
+  This is the contract that keeps the client and SFOS aligned.
 - **Diff-hash consistency:** a single-period record fetched through
   `ObjectSvc.Get` and through the mutate live-fetch gives the same hash.
 - **Service:** fake-client tests mirroring `servicegroup_test.go`: dry-run,
