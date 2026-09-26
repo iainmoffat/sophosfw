@@ -118,6 +118,9 @@ func newScheduleShowCmd(d RootDeps, cat *catalog.Catalog) *cobra.Command {
 			if e := out.References.Errors["FirewallRule"]; e != "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Reference scan errors: %s\n", e)
 			}
+			if n := out.References.Skipped["FirewallRule"]; n > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Reference scan incomplete: %d FirewallRule records could not be examined; delete will be refused\n", n)
+			}
 		}
 		return nil
 	}}
