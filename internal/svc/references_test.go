@@ -184,6 +184,13 @@ func TestFindReferences_ReferrerListErrorKeepsEmptyRefsAndError(t *testing.T) {
 	require.Contains(t, got.Errors["FirewallRule"], "permission")
 }
 
+func TestRecordContainsUnderKey_DoesNotMatchArrayValue(t *testing.T) {
+	var record map[string]any
+	require.NoError(t, json.Unmarshal(json.RawMessage(`{"Schedule":["X"]}`), &record))
+
+	require.False(t, recordContainsUnderKey(record, "Schedule", "X"))
+}
+
 func skippedCounts(t *testing.T, refs *References) map[string]int {
 	t.Helper()
 	b, err := json.Marshal(refs)
