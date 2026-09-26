@@ -112,8 +112,8 @@ func (s *ObjectSvc) List(ctx context.Context, profileName, tagOrAlias string, fi
 func isEmptyStubRecord(v any) bool {
 	switch x := v.(type) {
 	case map[string]any:
-		s, _ := x["Name"].(string)
-		return s == ""
+		s, ok := x["Name"].(string)
+		return ok && s == ""
 	default:
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Ptr {
