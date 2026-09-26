@@ -30,6 +30,14 @@
 - `sophosfw skill doctor` — validate skill files exist and examples are complete
 - `sophosfw mcp serve` — start MCP server (foundation: 0-tool scaffold)
 
+### Schedules
+- `sophosfw schedule list [--json] [--filter <expr>]` — list schedules
+- `sophosfw schedule show <name> [--json] [--with-references]` — show a schedule and optionally scan firewall-rule references
+- `sophosfw schedule create <name> --body <json|yaml> [--yes]` — create a Recurring schedule (dry-run by default)
+- `sophosfw schedule update <name> --body <json|yaml> --expected-diff-hash <hash> [--yes]` — replace a schedule (dry-run by default)
+- `sophosfw schedule delete <name> --expected-diff-hash <hash> [--yes]` — delete an unreferenced schedule (dry-run by default)
+- MCP tools: `schedule_list`, `schedule_show`, `schedule_create`, `schedule_update`, `schedule_delete`
+
 ## Planned: Phase 3+ (first-class commands)
 
 First-class wrappers with ergonomic flags and typed output:
