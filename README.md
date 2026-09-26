@@ -12,8 +12,8 @@ firewall rules, and NAT rules behind explicit confirm gates.
 
 Phases 0-15 complete. The CLI covers read, draft, and mutating
 operations across IP hosts, firewall rules, NAT rules, host/service
-groups, FQDN/MAC hosts, services, and site-to-site IPsec VPN. The MCP
-server registers 62 tools mirroring the CLI surface, plus
+groups, FQDN/MAC hosts, services, schedules, and site-to-site IPsec VPN.
+The MCP server registers 67 tools mirroring the CLI surface, plus
 multi-firewall fan-out (`--profile-set`), config backup, and drift
 detection. See `docs/roadmap.md` and `docs/api-coverage.md` for the
 exact surface.
