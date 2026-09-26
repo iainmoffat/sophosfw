@@ -40,7 +40,7 @@ func statusToError(code int, message string) error {
 		return &StatusError{Code: code, Message: message, Sentinel: ErrAuthFailed}
 	case code == 526:
 		return &StatusError{Code: code, Message: message, Sentinel: ErrNotFound}
-	case code == 535:
+	case code == 535 || code == 599:
 		return &StatusError{Code: code, Message: message, Sentinel: ErrPermissionDenied}
 	case code >= 500 && code <= 530:
 		return &StatusError{Code: code, Message: message, Sentinel: ErrInvalidRequest}

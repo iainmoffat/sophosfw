@@ -27,14 +27,27 @@ func TestStatusToError_PermissionDenied(t *testing.T) {
 	require.ErrorIs(t, err, ErrPermissionDenied)
 }
 
+func TestStatusToError_599PermissionDenied(t *testing.T) {
+	err := statusToError(599, "Permission denied")
+	require.ErrorIs(t, err, ErrPermissionDenied)
+}
+
 func TestStatusToError_InvalidRequest(t *testing.T) {
 	err := statusToError(500, "Bad request")
 	require.ErrorIs(t, err, ErrInvalidRequest)
 }
 
 func TestStatusToError_GenericServerError(t *testing.T) {
-	err := statusToError(599, "Server error")
+	err := statusToError(531, "Server error")
 	require.ErrorIs(t, err, ErrServerError)
+}
+
+func TestStatusToError_599PreservesCodeAndMessage(t *testing.T) {
+	err := statusToError(599, "Permission denied")
+	var sErr *StatusError
+	require.True(t, errors.As(err, &sErr))
+	require.Equal(t, 599, sErr.Code)
+	require.Equal(t, "Permission denied", sErr.Message)
 }
 
 func TestStatusToError_PreservesCodeAndMessage(t *testing.T) {
