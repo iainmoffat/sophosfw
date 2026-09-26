@@ -83,6 +83,7 @@ func (s *Server) registerAll() {
 	s.registerService()
 	s.registerServices()
 	s.registerServiceGroup()
+	s.registerSchedule()
 	s.registerFirewallRule()
 	s.registerNATRule()
 	s.registerVPNIPsec()
