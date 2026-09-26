@@ -42,12 +42,20 @@ func LoadBody(source string) (map[string]any, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("%w: body is empty", sophos.ErrInvalidRequest)
 	}
-	var body map[string]any
-	if jerr := json.Unmarshal(raw, &body); jerr == nil {
-		return body, nil
+	var decoded any
+	if jerr := json.Unmarshal(raw, &decoded); jerr == nil {
+		return bodyObject(decoded)
 	}
-	if yerr := yaml.Unmarshal(raw, &body); yerr == nil {
-		return body, nil
+	if yerr := yaml.Unmarshal(raw, &decoded); yerr == nil {
+		return bodyObject(decoded)
 	}
 	return nil, fmt.Errorf("%w: body is neither valid JSON nor YAML", sophos.ErrInvalidRequest)
+}
+
+func bodyObject(decoded any) (map[string]any, error) {
+	body, ok := decoded.(map[string]any)
+	if !ok || body == nil {
+		return nil, fmt.Errorf("%w: body must be a JSON/YAML object", sophos.ErrInvalidRequest)
+	}
+	return body, nil
 }
