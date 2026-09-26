@@ -164,6 +164,20 @@ func TestFindReferences_SkippedMatchingNamelessRecord(t *testing.T) {
 	require.Equal(t, map[string]int{"FirewallRule": 1}, skippedCounts(t, got))
 }
 
+func TestFindReferences_SkippedMatchingEmptyNameRecord(t *testing.T) {
+	body := map[string][]json.RawMessage{
+		"FirewallRule": {
+			json.RawMessage(`{"Name":"","Schedule":"NightShift"}`),
+		},
+	}
+	svc := newRefSvc(t, body, nil)
+
+	got, err := FindReferences(context.Background(), svc, "home", "Schedule", "NightShift")
+	require.NoError(t, err)
+	require.Empty(t, got.Refs["FirewallRule"])
+	require.Equal(t, map[string]int{"FirewallRule": 1}, skippedCounts(t, got))
+}
+
 func TestFindReferences_NonmatchingNamelessRecordIsNotSkipped(t *testing.T) {
 	body := map[string][]json.RawMessage{
 		"FirewallRule": {json.RawMessage(`{"Schedule":"Other"}`)},

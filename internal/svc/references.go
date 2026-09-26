@@ -29,10 +29,9 @@ var referenceKeyFilter = map[string]string{
 // References is the result of a reference-graph scan. Refs is the per-
 // referrer name list; Errors is the per-referrer error message captured
 // when a sub-query failed; Skipped counts records that could not be
-// inspected or matched records that have no usable Name. A successful
-// query that found no references yields an empty slice in Refs (NOT a
-// missing key); a failed query yields
-// no Refs entry and an Errors entry.
+// inspected or matched records whose Name is missing, non-string, or empty.
+// A successful query that found no references yields an empty slice in Refs
+// (NOT a missing key); a failed query yields no Refs entry and an Errors entry.
 type References struct {
 	Refs    map[string][]string `json:"refs"`
 	Errors  map[string]string   `json:"errors,omitempty"`
