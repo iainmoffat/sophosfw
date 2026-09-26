@@ -2,7 +2,7 @@
 
 - Issue: iainmoffat/sophosfw#12 (`agent-plan`)
 - Date: 2026-09-26
-- Status: draft, awaiting owner approval
+- Status: approved by owner 2026-09-26
 
 ## Goal
 
@@ -36,6 +36,7 @@ Sun–Thu 19:45–06:00 and Fri–Sat 20:00–06:00, referenced by a firewall ru
 | `Days` vocabulary | A closed list of the exact strings SFOS stores, compared case-sensitively. Anything else is rejected client-side. |
 | OneTime | Out of scope for writes. Read passthrough only. |
 | Cross-midnight | Decided by a testvm probe (below): SFOS itself rejects it, so the tool rejects it client-side with a message suggesting a split. |
+| SFOS 599 | Map **every** 599 to `ErrPermissionDenied` in `statusToError`, for all commands. Folded into this branch with a status test. |
 
 ## Probe results (testvm, 2026-09-26)
 
@@ -262,7 +263,7 @@ updated.
 | Read-only profile | `read_only_violation` |
 | Delete of a schedule a rule still references, or an incomplete reference scan | `invalid_request`; rule names or scan failure in the message text |
 | Hash mismatch | `diff_hash_mismatch` (existing) |
-| SFOS 599 (prod account: "Not having privilege…") | **Currently `server_error`**: `statusToError` maps only 535 to `ErrPermissionDenied`, and 599 falls outside the 500–530 invalid-request band. Proposed fold-in: map 599 → `ErrPermissionDenied`, with a status test. This affects every mutating command, not only Schedule (owner decision; see open questions). |
+| SFOS 599 (prod account: "Not having privilege…") | `permission_denied`, from the new 599 mapping (owner decision). Previously `server_error`. |
 | Any residual SFOS 501 | `invalid_request` carrying the SFOS message (existing mapping) |
 
 ## Testing
