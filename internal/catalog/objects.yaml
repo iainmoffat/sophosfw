@@ -35,6 +35,15 @@ objects:
     typedParser: ""
     mutable: true
 
+  - tag: Schedule
+    aliases: [schedule]
+    description: "Time schedules (Recurring / OneTime) referenced by rules"
+    columns: [Name, Type, ScheduleDetails]
+    filterable: [Name, Type]
+    usageTag: ""
+    typedParser: schedule
+    mutable: true
+
   - tag: FQDNHost
     aliases: [fqdn, fqdn-host, host-fqdn]
     description: "FQDN host objects (DNS-name targets)"

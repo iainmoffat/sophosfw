@@ -106,6 +106,34 @@ func TestIntegration_ServiceList_RoundTrips(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestIntegration_ScheduleParserNormalizesLive(t *testing.T) {
+	c := newClient(t)
+	resp, err := c.Do(context.Background(), sophos.Envelope{
+		Operations: []sophos.Op{sophos.GetOp{XMLTag: "Schedule"}},
+	})
+	require.NoError(t, err)
+	cat, err := catalog.NewDefault()
+	require.NoError(t, err)
+	records := resp.Body["Schedule"]
+	require.NotEmpty(t, records)
+	for _, raw := range records {
+		parsed, err := cat.Parse("Schedule", raw)
+		require.NoError(t, err)
+		obj, ok := parsed.(map[string]any)
+		require.True(t, ok, "parsed schedule has type %T", parsed)
+		details, ok := obj["ScheduleDetails"]
+		if !ok || details == nil {
+			continue
+		}
+		detailMap, ok := details.(map[string]any)
+		require.True(t, ok, "ScheduleDetails has type %T", details)
+		value, ok := detailMap["ScheduleDetail"]
+		if ok && value != nil {
+			require.IsType(t, []any{}, value)
+		}
+	}
+}
+
 func TestIntegration_FirewallRuleList_RoundTrips(t *testing.T) {
 	c := newClient(t)
 	_, err := c.Do(context.Background(), sophos.Envelope{
