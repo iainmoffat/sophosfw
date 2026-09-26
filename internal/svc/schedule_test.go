@@ -197,42 +197,88 @@ func TestScheduleSvc_DeleteReferenceGuardsAndSuccess(t *testing.T) {
 	hash, err := DiffHash(got.Data)
 	require.NoError(t, err)
 	fc.firewallRules = []map[string]any{{"Name": "R1", "Schedule": "Night&Shift"}}
+	before := readScheduleAuditEntries(t, auditDir)
 	_, err = s.Delete(context.Background(), "home", "Night&Shift", hash, false, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "referenced by firewall rules: R1")
+	assertScheduleDeleteGuardAudit(t, auditDir, before, "referenced by firewall rules")
 	require.Empty(t, fc.sent)
 
 	fc.firewallRules = nil
 	fc.failFirewall = true
+	before = readScheduleAuditEntries(t, auditDir)
 	_, err = s.Delete(context.Background(), "home", "Night&Shift", hash, false, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reference scan could not complete")
+	assertScheduleDeleteGuardAudit(t, auditDir, before, "reference scan could not complete")
 	fc.failFirewall = false
 	fc.firewallRules = []map[string]any{{"Schedule": "Night&Shift"}}
+	before = readScheduleAuditEntries(t, auditDir)
 	_, err = s.Delete(context.Background(), "home", "Night&Shift", hash, false, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "could not be examined")
+	assertScheduleDeleteGuardAudit(t, auditDir, before, "reference scan could not complete")
 
 	fc.firewallRules = nil
+	before = readScheduleAuditEntries(t, auditDir)
 	out, err := s.Delete(context.Background(), "home", "Night&Shift", hash, false, false)
 	require.NoError(t, err)
 	require.Equal(t, "delete", out.Operation)
 	require.Len(t, fc.sent, 1)
 	require.Contains(t, string(fc.sent[0]), `<Name>Night&amp;Shift</Name>`)
-	audit, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
-	require.NoError(t, err)
-	require.Contains(t, string(audit), `"operation":"schedule_delete"`)
-	require.Contains(t, string(audit), `"result":"ok"`)
+	entries := readScheduleAuditEntries(t, auditDir)
+	require.Len(t, entries, len(before)+1, "successful delete writes exactly one audit entry")
+	require.Equal(t, "schedule_delete", entries[len(entries)-1].Operation)
+	require.Equal(t, "Schedule", entries[len(entries)-1].ObjectType)
+	require.Equal(t, "Night&Shift", entries[len(entries)-1].ObjectName)
+	require.Equal(t, "ok", entries[len(entries)-1].Result)
 }
 
 func TestScheduleSvc_CreateApplyRefetchFailureAndAuditError(t *testing.T) {
 	live := scheduleSvcBody("Night")
-	s, fc, _ := newScheduleSvc(t, live)
+	s, fc, auditDir := newScheduleSvc(t, live)
 	fc.failScheduleAfterApply = true
 	out, err := s.Create(context.Background(), "home", "Night", live, false)
 	require.NoError(t, err)
 	require.Empty(t, out.NewDiffHash)
 	require.Len(t, fc.sent, 1)
+	entries := readScheduleAuditEntries(t, auditDir)
+	require.Len(t, entries, 1, "successful create writes exactly one audit entry")
+	require.Equal(t, "schedule_create", entries[0].Operation)
+	require.Equal(t, "Schedule", entries[0].ObjectType)
+	require.Equal(t, "Night", entries[0].ObjectName)
+	require.Equal(t, "ok", entries[0].Result)
+}
+
+func readScheduleAuditEntries(t *testing.T, auditDir string) []AuditEntry {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	var entries []AuditEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry AuditEntry
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func assertScheduleDeleteGuardAudit(t *testing.T, auditDir string, before []AuditEntry, message string) {
+	t.Helper()
+	entries := readScheduleAuditEntries(t, auditDir)
+	require.Len(t, entries, len(before)+1, "each refusal writes exactly one audit entry")
+	entry := entries[len(entries)-1]
+	require.Equal(t, "schedule_delete", entry.Operation)
+	require.Equal(t, "Schedule", entry.ObjectType)
+	require.Equal(t, "Night&Shift", entry.ObjectName)
+	require.Equal(t, "error:invalid_request", entry.Result)
+	require.Contains(t, entry.ErrorMessage, message)
 }
 
 func TestScheduleSvc_ShowReferencesPartialAndList(t *testing.T) {
